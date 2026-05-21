@@ -1,0 +1,14 @@
+{
+  "name": "mozaicscript-interpreter",
+  "version": "0.1.0",
+  "description": "mozaicScript interpreter engine v0.1.2",
+  "scripts": {
+    "start": "ts-node interpreter/index.ts",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.41",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
