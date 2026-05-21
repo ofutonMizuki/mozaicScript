@@ -1,0 +1,276 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "mozaicScript",
+  "scopeName": "source.mozaicscript",
+  "fileTypes": ["moz", "moc"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#builtins" },
+    { "include": "#class-declaration" },
+    { "include": "#function-declaration" },
+    { "include": "#import-statement" },
+    { "include": "#type-alias" },
+    { "include": "#constructor" },
+    { "include": "#operator-methods" },
+    { "include": "#keywords-control" },
+    { "include": "#keywords-declaration" },
+    { "include": "#access-modifiers" },
+    { "include": "#constants" },
+    { "include": "#machine-types" },
+    { "include": "#builtin-types" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.mozaicscript",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.mozaicscript",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.begin.mozaicscript" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.end.mozaicscript" }
+          }
+        }
+      ]
+    },
+
+    "strings": {
+      "name": "string.quoted.double.mozaicscript",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.mozaicscript" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.mozaicscript" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.mozaicscript",
+          "match": "\\\\[ntr\\\\\"0r]"
+        },
+        {
+          "name": "invalid.illegal.escape.mozaicscript",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "builtins": {
+      "name": "support.function.builtin.mozaicscript",
+      "match": "\\b(__builtin_[a-zA-Z0-9_]+)\\b"
+    },
+
+    "class-declaration": {
+      "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:<([A-Za-z_][A-Za-z0-9_,\\s]*)>)?",
+      "captures": {
+        "1": { "name": "keyword.declaration.class.mozaicscript" },
+        "2": { "name": "entity.name.type.class.mozaicscript" },
+        "3": { "name": "entity.name.type.parameter.mozaicscript" }
+      }
+    },
+
+    "function-declaration": {
+      "match": "\\b(function)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.function.mozaicscript" },
+        "2": { "name": "entity.name.function.mozaicscript" }
+      }
+    },
+
+    "import-statement": {
+      "begin": "\\b(import)\\b",
+      "end": ";",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.import.mozaicscript" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.terminator.mozaicscript" }
+      },
+      "patterns": [
+        { "include": "#strings" },
+        {
+          "name": "keyword.control.import.as.mozaicscript",
+          "match": "\\bas\\b"
+        },
+        {
+          "name": "keyword.operator.wildcard.mozaicscript",
+          "match": "\\*"
+        },
+        {
+          "name": "entity.name.namespace.mozaicscript",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+
+    "type-alias": {
+      "match": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(=)",
+      "captures": {
+        "1": { "name": "keyword.declaration.type.mozaicscript" },
+        "2": { "name": "entity.name.type.alias.mozaicscript" },
+        "3": { "name": "keyword.operator.assignment.mozaicscript" }
+      }
+    },
+
+    "constructor": {
+      "name": "entity.name.function.constructor.mozaicscript",
+      "match": "\\b(constructor)\\b"
+    },
+
+    "operator-methods": {
+      "patterns": [
+        {
+          "comment": "operator[] and operator_set[]",
+          "name": "entity.name.function.operator.mozaicscript",
+          "match": "\\boperator(?:_set)?\\[\\]"
+        },
+        {
+          "comment": "operator with symbol (+, -, *, /, %, ==, !=, <, >, <=, >=, ||, &&)",
+          "name": "entity.name.function.operator.mozaicscript",
+          "match": "\\boperator(?:==|!=|<=|>=|\\|\\||&&|[+\\-*/%<>])"
+        },
+        {
+          "comment": "operatorNeg, operatorNot and other word operators",
+          "name": "entity.name.function.operator.mozaicscript",
+          "match": "\\boperator[A-Z][A-Za-z0-9]*\\b"
+        }
+      ]
+    },
+
+    "keywords-control": {
+      "name": "keyword.control.mozaicscript",
+      "match": "\\b(if|else|while|for|return|break)\\b"
+    },
+
+    "keywords-declaration": {
+      "patterns": [
+        {
+          "name": "keyword.declaration.mozaicscript",
+          "match": "\\b(let|const|new)\\b"
+        },
+        {
+          "name": "variable.language.this.mozaicscript",
+          "match": "\\bthis\\b"
+        }
+      ]
+    },
+
+    "access-modifiers": {
+      "patterns": [
+        {
+          "comment": "mocp public — compound modifier, highlight mocp distinctly",
+          "match": "\\b(mocp)\\s+(public)\\b",
+          "captures": {
+            "1": { "name": "storage.modifier.mocp.mozaicscript" },
+            "2": { "name": "storage.modifier.mozaicscript" }
+          }
+        },
+        {
+          "name": "storage.modifier.mozaicscript",
+          "match": "\\b(public|private|protected)\\b"
+        }
+      ]
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.mozaicscript",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+
+    "machine-types": {
+      "comment": ".moc-only machine-word primitive types",
+      "name": "support.type.machine.mozaicscript",
+      "match": "\\b(_m32|_m64|_m128|_m256)\\b"
+    },
+
+    "builtin-types": {
+      "patterns": [
+        {
+          "comment": "numeric types",
+          "name": "support.type.numeric.mozaicscript",
+          "match": "\\b(i32|u32|f32|i64|u64|f64)\\b"
+        },
+        {
+          "comment": "other built-in types",
+          "name": "support.type.builtin.mozaicscript",
+          "match": "\\b(boolean|void|char|string|Array|Option|Result|Exception|Ptr|Stdout|Stderr|Stdin)\\b"
+        }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.mozaicscript",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.mozaicscript",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.mozaicscript",
+          "match": "==|!=|<=|>="
+        },
+        {
+          "name": "keyword.operator.logical.mozaicscript",
+          "match": "\\|\\||&&|(?<![=!<>])!(?!=)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.mozaicscript",
+          "match": "(?<![=!<>])\\+(?![=])|(?<![=!<>])\\-(?![=>])|\\*(?!=)|/(?![/*=])|%(?!=)"
+        },
+        {
+          "name": "keyword.operator.assignment.mozaicscript",
+          "match": "(?<![=!<>])=(?!=)"
+        },
+        {
+          "name": "keyword.operator.comparison.mozaicscript",
+          "match": "(?<![=!<>])>(?![=])|(?<![=!<>])<(?![=])"
+        }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.terminator.mozaicscript",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.mozaicscript",
+          "match": ","
+        },
+        {
+          "name": "punctuation.accessor.mozaicscript",
+          "match": "\\."
+        },
+        {
+          "name": "punctuation.definition.type-annotation.mozaicscript",
+          "match": ":"
+        }
+      ]
+    }
+  }
+}

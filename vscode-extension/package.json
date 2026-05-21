@@ -1,0 +1,35 @@
+{
+  "name": "mozaicscript-syntax",
+  "displayName": "mozaicScript",
+  "description": "Syntax highlighting for mozaicScript (.moz / .moc)",
+  "version": "0.1.0",
+  "publisher": "mozaicscript",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mozaicscript/mozaicscript"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "mozaicscript",
+        "aliases": ["mozaicScript", "moz"],
+        "extensions": [".moz", ".moc"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mozaicscript",
+        "scopeName": "source.mozaicscript",
+        "path": "./syntaxes/mozaicscript.tmLanguage.json"
+      }
+    ]
+  }
+}
