@@ -1,4 +1,4 @@
-# 📄 mozaicScript 言語仕様書 v0.2.3 (Formal Specification)
+# 📄 mozaicScript 言語仕様書 (Formal Specification)
 
 ## 1. 凡例および適合性 (Terminology & Compliance)
 
@@ -8,7 +8,7 @@
 - **禁止される（MUST NOT / PROHIBITED）：** その規定に反する挙動は絶対的な禁止事項（コンパイルエラー）である。
 - **実装依存（IMPLEMENTATION-DEFINED）：** 挙動は各コンパイラバックエンドの実装に委ねられる。ただし、実装者はその挙動を文書化しなければならない。
 
-コアライブラリの仕様については「mozaicScript コアライブラリ仕様書 v0.1.2」を参照すること。
+コアライブラリの仕様については「mozaicScript コアライブラリ仕様書」を参照すること。
 
 ---
 
@@ -427,7 +427,7 @@ i64  → private let bits: _m64 → 8バイト
 
 ## 11. 中間表現仕様 (Intermediate Representation)
 
-中間表現の詳細仕様については「mozaicScript 中間表現仕様書 v0.1.2」を参照すること。
+中間表現の詳細仕様については「mozaicScript 中間表現仕様書」を参照すること。
 
 フロントエンドは以下の基本方針に従いJSON形式のASTを出力しなければならない（**MUST**）。
 

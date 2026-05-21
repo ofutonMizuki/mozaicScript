@@ -1,6 +1,6 @@
-# 📄 mozaicScript コアライブラリ仕様書 v0.1.2
+# 📄 mozaicScript コアライブラリ仕様書
 
-本仕様書は mozaicScript 言語仕様書 v0.2.3 に基づき、`core.moc` として実装されるコアライブラリの仕様を定義する。
+本仕様書は mozaicScript 言語仕様書に基づき、`core.moc` として実装されるコアライブラリの仕様を定義する。
 
 ---
 

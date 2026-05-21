@@ -1,6 +1,6 @@
-# 📄 mozaicScript 実行エンジン仕様書 v0.1.2 (Interpreter Engine Specification)
+# 📄 mozaicScript 実行エンジン仕様書 (Interpreter Engine Specification)
 
-本仕様書は mozaicScript 中間表現仕様書 v0.1.2 が定義するJSON形式のASTを直接実行するインタープリタエンジンの仕様を定義する。実装言語はTypeScriptとする。
+本仕様書は mozaicScript 中間表現仕様書が定義するJSON形式のASTを直接実行するインタープリタエンジンの仕様を定義する。実装言語はTypeScriptとする。
 
 ---
 

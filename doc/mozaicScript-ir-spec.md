@@ -1,6 +1,6 @@
-# 📄 mozaicScript 中間表現仕様書 v0.1.2 (IR Specification)
+# 📄 mozaicScript 中間表現仕様書 (IR Specification)
 
-本仕様書は mozaicScript 言語仕様書 v0.2.3 に基づき、フロントエンドが出力するJSON形式の中間表現（AST）の仕様を定義する。
+本仕様書は mozaicScript 言語仕様書に基づき、フロントエンドが出力するJSON形式の中間表現（AST）の仕様を定義する。
 
 ---
 
