@@ -6,7 +6,8 @@
     "strict": false,
     "esModuleInterop": true,
     "outDir": "./dist",
-    "rootDir": "."
+    "rootDir": ".",
+    "types": ["node"]
   },
-  "include": ["interpreter/**/*.ts", "compiler/**/*.ts"]
+  "include": ["interpreter/**/*.ts", "compiler/**/*.ts", "codegen/**/*.ts"]
 }
