@@ -9,6 +9,7 @@ import * as path from 'path';
 import { lex, LexError } from './lexer';
 import { parse, ParseError } from './parser';
 import { Checker, CheckError, emptyRegistry } from './checker';
+import { Optimizer } from './optimizer';
 import { MozaicScriptAST } from '../interpreter/types';
 
 const args = process.argv.slice(2);
@@ -79,7 +80,10 @@ for (const { filePath } of order) {
         const checker = new Checker(registry);
         const nodes  = checker.check(pfile);
 
-        const ast: MozaicScriptAST = { mozaicScript: '0.2.3', nodes };
+        const optimizer = new Optimizer(registry);
+        const optimized = optimizer.optimize(nodes);
+
+        const ast: MozaicScriptAST = { mozaicScript: '0.2.3', nodes: optimized };
         const outPath = filePath + '.ast.json';
         fs.writeFileSync(outPath, JSON.stringify(ast, null, 2), 'utf-8');
         console.log(`  ✓  ${path.relative(process.cwd(), outPath)}`);
