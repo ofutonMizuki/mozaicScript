@@ -14,20 +14,27 @@ import type { Registry } from './checker';
 
 const MACHINE_TYPES = new Set(['_m8','_m16','_m32','_m64','_m128','_m256','_m512']);
 
+interface WrapperInfo {
+    fieldName: string;   // 実際のフィールド名（"bits" とは限らない）
+    bitsType:  string;   // _m32 / _m64 等
+}
+
 export class Optimizer {
-    // className → bitsType (_m32 等)
-    private wrappers: Map<string, string> = new Map();
+    // className → WrapperInfo
+    private wrappers: Map<string, WrapperInfo> = new Map();
 
     constructor(private registry: Registry) {
         this.detectWrappers();
     }
 
     // primitive wrapper クラスを検出する
+    // 「private _mXX フィールドが 1 つだけ」という構造的条件のみ使用し、
+    // フィールド名（"bits" 等）はハードコードしない。
     private detectWrappers(): void {
         for (const [name, cls] of this.registry.classEnv) {
             const priv = cls.members.filter(f => f.access === 'private');
-            if (priv.length === 1 && priv[0].name === 'bits' && MACHINE_TYPES.has(priv[0].resolvedType)) {
-                this.wrappers.set(name, priv[0].resolvedType);
+            if (priv.length === 1 && MACHINE_TYPES.has(priv[0].resolvedType)) {
+                this.wrappers.set(name, { fieldName: priv[0].name, bitsType: priv[0].resolvedType });
             }
         }
     }
@@ -47,16 +54,23 @@ export class Optimizer {
             if (inlined !== n) return this.optNode(inlined); // 再帰して連鎖展開
         }
 
-        // (new Wrapper(x)).bits → x
-        if (n.type === 'MemberAccess' && (n as IR.MemberAccess).member === 'bits') {
+        // (new Wrapper(x)).<field> → x （フィールド名は registry から取得）
+        if (n.type === 'MemberAccess') {
             const ma = n as IR.MemberAccess;
             if (ma.receiver.type === 'NewExpr') {
                 const ne = ma.receiver as IR.NewExpr;
                 const base = ne.resolvedType.split('<')[0];
-                if (this.wrappers.has(base) && !ne.elements && ne.args.length === 1) {
+                const info = this.wrappers.get(base);
+                if (info && ma.member === info.fieldName && !ne.elements && ne.args.length === 1) {
                     return ne.args[0];
                 }
             }
+        }
+
+        // Intrinsic: 引数から primitive wrapper を剥がして定数畳み込み
+        if (n.type === 'Intrinsic') {
+            const result = this.optIntrinsic(n as IR.Intrinsic);
+            if (result !== n) return result;
         }
 
         return n;
@@ -201,6 +215,136 @@ export class Optimizer {
 
     private optFn(fn: IR.FunctionDecl): IR.FunctionDecl {
         return { ...fn, body: fn.body.map(n => this.optNode(n)) };
+    }
+
+    // ── Intrinsic 最適化 ──────────────────────────────────────────────────────
+
+    private optIntrinsic(intr: IR.Intrinsic): IR.ASTNode {
+        // 1. primitive wrapper を引数から剥がす: NewExpr{Wrapper,[x]} → x
+        let changed = false;
+        const unwrapped = intr.args.map(arg => {
+            if (arg.type === 'NewExpr') {
+                const ne = arg as IR.NewExpr;
+                const base = ne.resolvedType.split('<')[0];
+                if (this.wrappers.has(base) && !ne.elements && ne.args.length === 1) {
+                    changed = true;
+                    return ne.args[0];
+                }
+            }
+            return arg;
+        });
+        const intr2: IR.Intrinsic = changed ? { ...intr, args: unwrapped } : intr;
+
+        // 2. 代数的恒等式（片側がリテラルのとき）
+        const simp = this.tryAlgebraic(intr2);
+        if (simp !== intr2) return simp;
+
+        // 3. 定数畳み込み（両辺がリテラルのとき）
+        return this.tryConstFold(intr2);
+    }
+
+    // 代数的恒等式: x+0→x, x*1→x, x*0→0, x-0→x, x/1→x
+    private tryAlgebraic(intr: IR.Intrinsic): IR.ASTNode {
+        if (intr.args.length !== 2) return intr;
+        const [a, b] = intr.args;
+        const aLit = a.type === 'RawLiteral' ? (a as IR.RawLiteral).value : null;
+        const bLit = b.type === 'RawLiteral' ? (b as IR.RawLiteral).value : null;
+
+        const isAdd  = /^__builtin_(i32|u32|i64|u64|f32|f64)_add$/.test(intr.name);
+        const isSub  = /^__builtin_(i32|u32|i64|u64|f32|f64)_sub$/.test(intr.name);
+        const isMul  = /^__builtin_(i32|u32|i64|u64|f32|f64)_mul$/.test(intr.name);
+        const isDiv  = /^__builtin_(i32|u32|i64|u64|f32|f64)_div$/.test(intr.name);
+
+        if (isAdd) {
+            if (bLit === 0) return a;
+            if (aLit === 0) return b;
+        }
+        if (isSub && bLit === 0) return a;
+        if (isMul) {
+            if (bLit === 1) return a;
+            if (aLit === 1) return b;
+            if (bLit === 0) return b; // 0 (RawLiteral)
+            if (aLit === 0) return a;
+        }
+        if (isDiv && bLit === 1) return a;
+
+        return intr;
+    }
+
+    // 定数畳み込み: 両引数が RawLiteral のとき compile-time に計算
+    private tryConstFold(intr: IR.Intrinsic): IR.ASTNode {
+        const allLit = intr.args.every(a => a.type === 'RawLiteral');
+        if (!allLit) return intr;
+        const vals = intr.args.map(a => (a as IR.RawLiteral).value);
+        const result = this.evalBuiltin(intr.name, vals);
+        if (result === null) return intr;
+        return { type: 'RawLiteral', kind: 'int', value: result };
+    }
+
+    private evalBuiltin(name: string, [a, b]: number[]): number | null {
+        switch (name) {
+            // i32
+            case '__builtin_i32_add': return (a + b) | 0;
+            case '__builtin_i32_sub': return (a - b) | 0;
+            case '__builtin_i32_mul': return Math.imul(a, b);
+            case '__builtin_i32_div': return b === 0 ? null : (Math.trunc(a / b)) | 0;
+            case '__builtin_i32_mod': return b === 0 ? null : (a - Math.trunc(a / b) * b) | 0;
+            case '__builtin_i32_neg': return (-a) | 0;
+            case '__builtin_i32_eq':  return a === b ? 1 : 0;
+            case '__builtin_i32_lt':  return a < b ? 1 : 0;
+            case '__builtin_i32_gt':  return a > b ? 1 : 0;
+            case '__builtin_i32_or':  return (a | b) === 0 ? 0 : 1;
+            case '__builtin_i32_and': return (a !== 0 && b !== 0) ? 1 : 0;
+            case '__builtin_i32_not': return a !== 0 ? 0 : 1;
+            case '__builtin_i32_shl': return (a << (b & 31)) | 0;
+            case '__builtin_i32_shr': return (a >> (b & 31)) | 0;
+            case '__builtin_i32_bitwise_and': return (a & b) | 0;
+            case '__builtin_i32_bitwise_or':  return (a | b) | 0;
+            case '__builtin_i32_bitwise_xor': return (a ^ b) | 0;
+            case '__builtin_i32_rotl': { const s = (b & 31); return ((a << s) | (a >>> (32 - s))) | 0; }
+            case '__builtin_i32_rotr': { const s = (b & 31); return ((a >>> s) | (a << (32 - s))) | 0; }
+            case '__builtin_i32_clz':  return Math.clz32(a);
+            case '__builtin_i32_popcnt': {
+                let n = a >>> 0, c = 0;
+                while (n) { c += n & 1; n >>>= 1; }
+                return c;
+            }
+            // u32
+            case '__builtin_u32_add': return ((a >>> 0) + (b >>> 0)) >>> 0;
+            case '__builtin_u32_sub': return ((a >>> 0) - (b >>> 0)) >>> 0;
+            case '__builtin_u32_mul': return Math.imul(a, b) >>> 0;
+            case '__builtin_u32_div': return b === 0 ? null : ((a >>> 0) / (b >>> 0)) >>> 0;
+            case '__builtin_u32_mod': return b === 0 ? null : ((a >>> 0) % (b >>> 0)) >>> 0;
+            case '__builtin_u32_eq':  return (a >>> 0) === (b >>> 0) ? 1 : 0;
+            case '__builtin_u32_lt':  return (a >>> 0) < (b >>> 0) ? 1 : 0;
+            case '__builtin_u32_gt':  return (a >>> 0) > (b >>> 0) ? 1 : 0;
+            case '__builtin_u32_shl': return ((a >>> 0) << (b & 31)) >>> 0;
+            case '__builtin_u32_shr': return ((a >>> 0) >>> (b & 31)) >>> 0;
+            // f32
+            case '__builtin_f32_add': return Math.fround(a + b);
+            case '__builtin_f32_sub': return Math.fround(a - b);
+            case '__builtin_f32_mul': return Math.fround(a * b);
+            case '__builtin_f32_div': return b === 0 ? null : Math.fround(a / b);
+            case '__builtin_f32_neg': return Math.fround(-a);
+            case '__builtin_f32_eq':  return a === b ? 1 : 0;
+            case '__builtin_f32_lt':  return a < b ? 1 : 0;
+            case '__builtin_f32_gt':  return a > b ? 1 : 0;
+            case '__builtin_f32_abs': return Math.fround(Math.abs(a));
+            case '__builtin_f32_sqrt': return Math.fround(Math.sqrt(a));
+            case '__builtin_f32_floor': return Math.fround(Math.floor(a));
+            case '__builtin_f32_ceil':  return Math.fround(Math.ceil(a));
+            case '__builtin_f32_trunc': return Math.fround(Math.trunc(a));
+            case '__builtin_f32_min':   return Math.fround(Math.min(a, b));
+            case '__builtin_f32_max':   return Math.fround(Math.max(a, b));
+            // 型変換
+            case '__builtin_i32_to_f32': return Math.fround(a);
+            case '__builtin_f32_to_i32': return Math.trunc(a) | 0;
+            case '__builtin_i32_to_u32': return a >>> 0;
+            case '__builtin_u32_to_i32': return a | 0;
+            case '__builtin_u32_to_f32': return Math.fround(a >>> 0);
+            case '__builtin_f32_to_u32': return (Math.trunc(a)) >>> 0;
+            default: return null;
+        }
     }
 
     // ── メソッドインライン展開 ─────────────────────────────────────────────────

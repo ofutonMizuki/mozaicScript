@@ -717,11 +717,17 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             node.type === "Intrinsic" &&
             (node.name === "__builtin_if" || node.name === "__builtin_while")
         ) {
-            const boolExpr = this.flattenExpr(node.args[0], pre, subst);
-            const boolVar  = this.maybeTemp(boolExpr, "_ms_boolean", pre);
-            return `${boolVar}.bits`;
+            const arg = node.args[0];
+            const argType = (arg as any).resolvedType ?? "";
+            const argExpr = this.flattenExpr(arg, pre, subst);
+            // 最適化後は boolean wrapper が剥がれて _m32 直値になる場合がある
+            if (argType === "boolean") {
+                const boolVar = this.maybeTemp(argExpr, "_ms_boolean", pre);
+                return `${boolVar}.bits`;
+            }
+            // _m32 / RawLiteral 等: そのまま使う
+            return argExpr;
         }
-        // フォールバック: _m32 ならそのまま
         return this.flattenExpr(node, pre, subst);
     }
 
