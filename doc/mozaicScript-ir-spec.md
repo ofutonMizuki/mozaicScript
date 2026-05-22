@@ -33,6 +33,11 @@
 | 式 | `MethodCall`, `NewExpr`, `Identifier`, `Intrinsic`, `Assign`, `MemberAccess` |
 | 文 | `IfStmt`, `ElseStmt`, `WhileStmt`, `ForStmt`, `ReturnStmt`, `BreakStmt` |
 | リテラル | `RawLiteral` |
+| スレッド | `ThreadSpawn`, `ThreadJoin` |
+| スレッドプール | `ThreadPoolCreate`, `ThreadPoolSubmit`, `ThreadPoolWait`, `ThreadPoolDestroy` |
+| ミューテックス | `MutexCreate`, `MutexLock`, `MutexUnlock` |
+| 条件変数 | `CondVarCreate`, `CondVarWait`, `CondVarSignal`, `CondVarBroadcast` |
+| アトミック | `AtomicLoad`, `AtomicStore`, `AtomicCas`, `AtomicFetchAdd`, `AtomicFetchSub` |
 
 ---
 
@@ -348,6 +353,33 @@
 ```json
 { "type": "BreakStmt" }
 ```
+
+### マルチスレッドノード
+
+```json
+{ "type": "ThreadSpawn", "resolvedType": "_m64", "fnName": "searchAlphaBeta", "args": [...] }
+{ "type": "ThreadJoin", "resolvedType": "void", "threadId": { ... } }
+{ "type": "ThreadPoolCreate", "resolvedType": "_m64", "size": { ... } }
+{ "type": "ThreadPoolSubmit", "resolvedType": "void", "pool": { ... }, "fnName": "worker", "args": [...] }
+{ "type": "ThreadPoolWait", "resolvedType": "void", "pool": { ... } }
+{ "type": "ThreadPoolDestroy", "resolvedType": "void", "pool": { ... } }
+{ "type": "MutexCreate", "resolvedType": "_m64" }
+{ "type": "MutexLock", "resolvedType": "void", "mutexId": { ... } }
+{ "type": "MutexUnlock", "resolvedType": "void", "mutexId": { ... } }
+{ "type": "CondVarCreate", "resolvedType": "_m64" }
+{ "type": "CondVarWait", "resolvedType": "void", "condVar": { ... }, "mutexId": { ... } }
+{ "type": "CondVarSignal", "resolvedType": "void", "condVar": { ... } }
+{ "type": "CondVarBroadcast", "resolvedType": "void", "condVar": { ... } }
+{ "type": "AtomicLoad", "resolvedType": "_m32", "ptr": { ... } }
+{ "type": "AtomicStore", "resolvedType": "void", "ptr": { ... }, "value": { ... } }
+{ "type": "AtomicCas", "resolvedType": "boolean", "ptr": { ... }, "expected": { ... }, "desired": { ... } }
+{ "type": "AtomicFetchAdd", "resolvedType": "_m32", "ptr": { ... }, "value": { ... } }
+{ "type": "AtomicFetchSub", "resolvedType": "_m32", "ptr": { ... }, "value": { ... } }
+```
+
+- `ThreadSpawn` / `ThreadPoolSubmit` の `fnName` は文字列（評価時に関数名として解決される）
+- `args` は式ノードの配列
+- スレッドID・プールID・ミューテックスID・条件変数IDはすべて `_m64` で表現される
 
 ### RawLiteral
 

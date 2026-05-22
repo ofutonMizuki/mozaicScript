@@ -21,7 +21,7 @@ mozaicScriptは2種類のファイル拡張子を定義する。
 | `.moz` | 一般ユーザーコード | 禁止 | 禁止 |
 | `.moc` | コアライブラリ専用 | 許可 | 許可 |
 
-- `.moz` ファイル内で `_m32`, `_m64`, `_m128`, `_m256` を型として使用した場合、コンパイルエラーとする（**MUST NOT**）。
+- `.moz` ファイル内で `_m8`, `_m16`, `_m32`, `_m64`, `_m128`, `_m256`, `_m512` を型として使用した場合、コンパイルエラーとする（**MUST NOT**）。
 - `.moc` ファイルはコンパイラが特権モードで処理する。
 - すべてのファイルは、明示的な `import` 宣言なしに他ファイルの定義を使用することはできない（**MUST NOT**）。
 
@@ -31,12 +31,17 @@ mozaicScriptは2種類のファイル拡張子を定義する。
 
 ### 3.1 ビット系列プリミティブ（組み込み型）
 
-`.moc` ファイル内でのみ使用可能な、コンパイラが直接認識するデータプリミティブとして以下の4つを定義する。これらはすべて意味（解釈）を一切持たない不透明なビットの塊（Opaque Bit Pattern）である。
+`.moc` ファイル内でのみ使用可能な、コンパイラが直接認識するデータプリミティブを以下に定義する。これらはすべて意味（解釈）を一切持たない不透明なビットの塊（Opaque Bit Pattern）である。`_mN` は2の冪乗のみ定義する。
 
-- **`_m32`**: 静的に32ビットのサイズを持つメモリ領域。
-- **`_m64`**: 静的に64ビットのサイズを持つメモリ領域。
-- **`_m128`**: 静的に128ビットのサイズを持つメモリ領域（SIMD / ベクトル演算用）。
-- **`_m256`**: 静的に256ビットのサイズを持つメモリ領域（SIMD / ベクトル演算用）。
+| 型 | サイズ | 位置づけ |
+|---|---|---|
+| `_m8` | 8bit | 量子化・組み込み（int8量子化・MLP軽量化） |
+| `_m16` | 16bit | 量子化・fp16（fp16 / int16量子化・MLP軽量化） |
+| `_m32` | 32bit | 現行32bit CPU |
+| `_m64` | 64bit | 現行64bit CPU |
+| `_m128` | 128bit | SIMD / 将来の128bit CPU予約 |
+| `_m256` | 256bit | SIMD / 将来の256bit CPU予約 |
+| `_m512` | 512bit | SIMD（AVX-512）/ 将来の512bit CPU予約 |
 
 ### 3.2 メモリ空間とポインタの定義
 
@@ -322,6 +327,31 @@ mozaicScriptは `try`, `catch`, `throw` といった例外専用の制御構造�
 | `__builtin_f32_eq(a: _m32, b: _m32): _m32` | 浮動小数点等価比較（0 or 1） |
 | `__builtin_f32_lt(a: _m32, b: _m32): _m32` | 浮動小数点小なり比較（0 or 1） |
 | `__builtin_f32_gt(a: _m32, b: _m32): _m32` | 浮動小数点大なり比較（0 or 1） |
+| `__builtin_i64_add(a: _m64, b: _m64): _m64` | 符号あり64bit整数加算 |
+| `__builtin_i64_sub(a: _m64, b: _m64): _m64` | 符号あり64bit整数減算 |
+| `__builtin_i64_mul(a: _m64, b: _m64): _m64` | 符号あり64bit整数乗算 |
+| `__builtin_i64_div(a: _m64, b: _m64): _m64` | 符号あり64bit整数除算 |
+| `__builtin_i64_mod(a: _m64, b: _m64): _m64` | 符号あり64bit整数剰余 |
+| `__builtin_i64_eq(a: _m64, b: _m64): _m64` | 等価比較（0 or 1） |
+| `__builtin_i64_lt(a: _m64, b: _m64): _m64` | 小なり比較（0 or 1） |
+| `__builtin_i64_gt(a: _m64, b: _m64): _m64` | 大なり比較（0 or 1） |
+| `__builtin_i64_neg(a: _m64): _m64` | 符号反転 |
+| `__builtin_u64_add(a: _m64, b: _m64): _m64` | 符号なし64bit整数加算 |
+| `__builtin_u64_sub(a: _m64, b: _m64): _m64` | 符号なし64bit整数減算 |
+| `__builtin_u64_mul(a: _m64, b: _m64): _m64` | 符号なし64bit整数乗算 |
+| `__builtin_u64_div(a: _m64, b: _m64): _m64` | 符号なし64bit整数除算 |
+| `__builtin_u64_mod(a: _m64, b: _m64): _m64` | 符号なし64bit整数剰余 |
+| `__builtin_u64_eq(a: _m64, b: _m64): _m64` | 符号なし等価比較（0 or 1） |
+| `__builtin_u64_lt(a: _m64, b: _m64): _m64` | 符号なし小なり比較（0 or 1） |
+| `__builtin_u64_gt(a: _m64, b: _m64): _m64` | 符号なし大なり比較（0 or 1） |
+| `__builtin_f64_add(a: _m64, b: _m64): _m64` | 64bit浮動小数点加算 |
+| `__builtin_f64_sub(a: _m64, b: _m64): _m64` | 64bit浮動小数点減算 |
+| `__builtin_f64_mul(a: _m64, b: _m64): _m64` | 64bit浮動小数点乗算 |
+| `__builtin_f64_div(a: _m64, b: _m64): _m64` | 64bit浮動小数点除算 |
+| `__builtin_f64_mod(a: _m64, b: _m64): _m64` | 64bit浮動小数点剰余 |
+| `__builtin_f64_eq(a: _m64, b: _m64): _m64` | 浮動小数点等価比較（0 or 1） |
+| `__builtin_f64_lt(a: _m64, b: _m64): _m64` | 浮動小数点小なり比較（0 or 1） |
+| `__builtin_f64_gt(a: _m64, b: _m64): _m64` | 浮動小数点大なり比較（0 or 1） |
 
 ### 9.2 論理演算命令
 
@@ -330,6 +360,27 @@ mozaicScriptは `try`, `catch`, `throw` といった例外専用の制御構造�
 | `__builtin_i32_or(a: _m32, b: _m32): _m32` | 論理OR |
 | `__builtin_i32_and(a: _m32, b: _m32): _m32` | 論理AND |
 | `__builtin_i32_not(a: _m32): _m32` | 論理NOT |
+| `__builtin_u32_or(a: _m32, b: _m32): _m32` | 論理OR |
+| `__builtin_u32_and(a: _m32, b: _m32): _m32` | 論理AND |
+| `__builtin_i64_or(a: _m64, b: _m64): _m64` | 論理OR |
+| `__builtin_i64_and(a: _m64, b: _m64): _m64` | 論理AND |
+| `__builtin_i64_not(a: _m64): _m64` | 論理NOT |
+| `__builtin_u64_or(a: _m64, b: _m64): _m64` | 論理OR |
+| `__builtin_u64_and(a: _m64, b: _m64): _m64` | 論理AND |
+| `__builtin_u64_not(a: _m64): _m64` | 論理NOT |
+
+### 9.2.1 ビットシフト命令
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_i32_shl(a: _m32, b: _m32): _m32` | 左シフト |
+| `__builtin_i32_shr(a: _m32, b: _m32): _m32` | 算術右シフト |
+| `__builtin_u32_shl(a: _m32, b: _m32): _m32` | 左シフト |
+| `__builtin_u32_shr(a: _m32, b: _m32): _m32` | 論理右シフト |
+| `__builtin_i64_shl(a: _m64, b: _m64): _m64` | 左シフト |
+| `__builtin_i64_shr(a: _m64, b: _m64): _m64` | 算術右シフト |
+| `__builtin_u64_shl(a: _m64, b: _m64): _m64` | 左シフト |
+| `__builtin_u64_shr(a: _m64, b: _m64): _m64` | 論理右シフト |
 
 ### 9.3 制御命令
 
@@ -343,13 +394,18 @@ mozaicScriptは `try`, `catch`, `throw` といった例外専用の制御構造�
 
 | 命令 | 説明 |
 |------|------|
-| `__builtin_malloc(size_bytes: _m32): _m32` | ヒープメモリ確保 |
+| `__builtin_malloc(size_bytes: _m32): _m32` | ヒープメモリ確保（32bitポインタ版） |
+| `__builtin_malloc(size_bytes: _m64): _m64` | ヒープメモリ確保（64bitポインタ版） |
 | `__builtin_free(ptr: _m32): void` | ヒープメモリ解放 |
+| `__builtin_mem_read8(ptr: _m64, offset: _m64): _m32` | 8bit読み込み（ゼロ拡張） |
+| `__builtin_mem_read16(ptr: _m64, offset: _m64): _m32` | 16bit読み込み（ゼロ拡張） |
 | `__builtin_mem_read32(ptr: _m32, offset: _m32): _m32` | 32bit読み込み |
+| `__builtin_mem_write8(ptr: _m64, offset: _m64, value: _m32): void` | 8bit書き込み |
+| `__builtin_mem_write16(ptr: _m64, offset: _m64, value: _m32): void` | 16bit書き込み |
 | `__builtin_mem_write32(ptr: _m32, offset: _m32, value: _m32): void` | 32bit書き込み |
+| `__builtin_mem_read64(ptr: _m64, offset: _m64): _m64` | 64bit読み込み |
+| `__builtin_mem_write64(ptr: _m64, offset: _m64, value: _m64): void` | 64bit書き込み |
 | `__builtin_zeroinit(): _m32` | ゼロ初期化 |
-
-※ 64bit/128bit/256bit用の各読み書き命令も同様のセマンティクスで提供される。
 
 ### 9.5 単項演算命令
 
@@ -369,7 +425,7 @@ mozaicScriptは `try`, `catch`, `throw` といった例外専用の制御構造�
 バックエンド・エンジンは以下のルールに従って `targetType` のバイト数を決定しなければならない（**MUST**）。
 
 - クラス定義の `private` フィールドに含まれるビット系列プリミティブの合計サイズをそのクラスのサイズとする
-- `_m32` = 4バイト、`_m64` = 8バイト、`_m128` = 16バイト、`_m256` = 32バイト
+- `_m8` = 1バイト、`_m16` = 2バイト、`_m32` = 4バイト、`_m64` = 8バイト、`_m128` = 16バイト、`_m256` = 32バイト、`_m512` = 64バイト
 
 ```
 // 例
@@ -385,10 +441,124 @@ i64  → private let bits: _m64 → 8バイト
 | `__builtin_i32_to_u32(a: _m32): _m32` | i32 → u32 |
 | `__builtin_u32_to_f32(a: _m32): _m32` | u32 → f32 |
 | `__builtin_u32_to_i32(a: _m32): _m32` | u32 → i32 |
-| `__builtin_f32_to_i32(a: _m32): _m32` | f32 → i32（小数点以下切り捨て） |
-| `__builtin_f32_to_u32(a: _m32): _m32` | f32 → u32（小数点以下切り捨て） |
+| `__builtin_f32_to_i32(a: _m32): _m32` | f32 → i32（切り捨て） |
+| `__builtin_f32_to_u32(a: _m32): _m32` | f32 → u32（切り捨て） |
+| `__builtin_i32_to_i64(a: _m32): _m64` | i32 → i64（符号拡張） |
+| `__builtin_u32_to_u64(a: _m32): _m64` | u32 → u64（ゼロ拡張） |
+| `__builtin_i64_to_i32(a: _m64): _m32` | i64 → i32（下位32bit） |
+| `__builtin_u64_to_u32(a: _m64): _m32` | u64 → u32（下位32bit） |
+| `__builtin_f32_to_f64(a: _m32): _m64` | f32 → f64（精度拡張） |
+| `__builtin_f64_to_f32(a: _m64): _m32` | f64 → f32（精度縮小） |
+| `__builtin_f64_to_i64(a: _m64): _m64` | f64 → i64（切り捨て） |
+| `__builtin_i64_to_f64(a: _m64): _m64` | i64 → f64 |
+| `__builtin_u64_to_f64(a: _m64): _m64` | u64 → f64 |
 
-### 9.8 入出力命令
+### 9.8 整数ビット操作命令
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_i32_rotl(a: _m32, b: _m32): _m32` | 左ローテート |
+| `__builtin_i32_rotr(a: _m32, b: _m32): _m32` | 右ローテート |
+| `__builtin_i32_clz(a: _m32): _m32` | 先頭ゼロビットカウント |
+| `__builtin_i32_ctz(a: _m32): _m32` | 末尾ゼロビットカウント |
+| `__builtin_i32_popcnt(a: _m32): _m32` | 1ビットカウント |
+| `__builtin_i64_rotl(a: _m64, b: _m64): _m64` | 左ローテート |
+| `__builtin_i64_rotr(a: _m64, b: _m64): _m64` | 右ローテート |
+| `__builtin_i64_clz(a: _m64): _m64` | 先頭ゼロビットカウント |
+| `__builtin_i64_ctz(a: _m64): _m64` | 末尾ゼロビットカウント |
+| `__builtin_i64_popcnt(a: _m64): _m64` | 1ビットカウント |
+
+### 9.9 浮動小数点演算命令
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_f32_abs(a: _m32): _m32` | 絶対値 |
+| `__builtin_f32_sqrt(a: _m32): _m32` | 平方根 |
+| `__builtin_f32_floor(a: _m32): _m32` | 床関数 |
+| `__builtin_f32_ceil(a: _m32): _m32` | 天井関数 |
+| `__builtin_f32_trunc(a: _m32): _m32` | 切り捨て |
+| `__builtin_f32_nearest(a: _m32): _m32` | 最近接偶数丸め |
+| `__builtin_f32_min(a: _m32, b: _m32): _m32` | 最小値 |
+| `__builtin_f32_max(a: _m32, b: _m32): _m32` | 最大値 |
+| `__builtin_f64_abs(a: _m64): _m64` | 絶対値 |
+| `__builtin_f64_neg(a: _m64): _m64` | 符号反転 |
+| `__builtin_f64_sqrt(a: _m64): _m64` | 平方根 |
+| `__builtin_f64_floor(a: _m64): _m64` | 床関数 |
+| `__builtin_f64_ceil(a: _m64): _m64` | 天井関数 |
+| `__builtin_f64_trunc(a: _m64): _m64` | 切り捨て |
+| `__builtin_f64_nearest(a: _m64): _m64` | 最近接偶数丸め |
+| `__builtin_f64_min(a: _m64, b: _m64): _m64` | 最小値 |
+| `__builtin_f64_max(a: _m64, b: _m64): _m64` | 最大値 |
+
+### 9.10 超越関数（予約済み命令）
+
+以下の命令名を**予約済み組み込み命令**として定義する。実装はバックエンド任意（**OPTIONAL**）とする。バックエンドがネイティブ命令（x86の `FSIN` / `FCOS` など）または標準ライブラリを持つ場合に実装してよい。実装されない場合はユーザーがmozaicScriptで自前実装する。
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_f32_sin(a: _m32): _m32` | 正弦 |
+| `__builtin_f32_cos(a: _m32): _m32` | 余弦 |
+| `__builtin_f32_tan(a: _m32): _m32` | 正接 |
+| `__builtin_f32_exp(a: _m32): _m32` | 指数関数 |
+| `__builtin_f32_log(a: _m32): _m32` | 自然対数 |
+| `__builtin_f32_pow(a: _m32, b: _m32): _m32` | 冪乗 |
+| `__builtin_f32_atan(a: _m32): _m32` | 逆正接 |
+| `__builtin_f32_atan2(a: _m32, b: _m32): _m32` | 2引数逆正接 |
+| `__builtin_f64_sin(a: _m64): _m64` | 正弦 |
+| `__builtin_f64_cos(a: _m64): _m64` | 余弦 |
+| `__builtin_f64_tan(a: _m64): _m64` | 正接 |
+| `__builtin_f64_exp(a: _m64): _m64` | 指数関数 |
+| `__builtin_f64_log(a: _m64): _m64` | 自然対数 |
+| `__builtin_f64_pow(a: _m64, b: _m64): _m64` | 冪乗 |
+| `__builtin_f64_atan(a: _m64): _m64` | 逆正接 |
+| `__builtin_f64_atan2(a: _m64, b: _m64): _m64` | 2引数逆正接 |
+
+### 9.11 マルチスレッド命令
+
+**スレッド命令**
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_thread_spawn(fnName: string, args: Array<_m32>): _m64` | スレッド生成。関数名を文字列で指定する |
+| `__builtin_thread_join(id: _m64): void` | スレッド終了待機 |
+
+**スレッドプール命令**
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_threadpool_create(size: _m32): _m64` | スレッドプール生成 |
+| `__builtin_threadpool_submit(pool: _m64, fnName: string, args: Array<_m32>): void` | タスクをプールに投入 |
+| `__builtin_threadpool_wait(pool: _m64): void` | プール内全タスクの完了待機 |
+| `__builtin_threadpool_destroy(pool: _m64): void` | スレッドプール破棄 |
+
+**ミューテックス命令**
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_mutex_create(): _m64` | ミューテックス生成 |
+| `__builtin_mutex_lock(m: _m64): void` | ロック取得 |
+| `__builtin_mutex_unlock(m: _m64): void` | ロック解放 |
+
+**条件変数命令**
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_condvar_create(): _m64` | 条件変数生成 |
+| `__builtin_condvar_wait(cv: _m64, mutex: _m64): void` | 条件変数で待機 |
+| `__builtin_condvar_signal(cv: _m64): void` | 待機中スレッドを1つ起こす |
+| `__builtin_condvar_broadcast(cv: _m64): void` | 待機中スレッドをすべて起こす |
+
+**アトミック操作命令**
+
+| 命令 | 説明 |
+|------|------|
+| `__builtin_atomic_load(ptr: _m32): _m32` | アトミック読み込み |
+| `__builtin_atomic_store(ptr: _m32, val: _m32): void` | アトミック書き込み |
+| `__builtin_atomic_cas(ptr: _m32, expected: _m32, desired: _m32): boolean` | Compare-And-Swap |
+| `__builtin_atomic_fetch_add(ptr: _m32, val: _m32): _m32` | アトミック加算（加算前の値を返す） |
+| `__builtin_atomic_fetch_sub(ptr: _m32, val: _m32): _m32` | アトミック減算（減算前の値を返す） |
+
+### 9.12 入出力命令
 
 | 命令 | 説明 |
 |------|------|
@@ -422,6 +592,18 @@ i64  → private let bits: _m64 → 8バイト
 | 数値オーバーフロー時の挙動 | ラップアラウンド、パニックなど |
 | 境界外アクセス時の挙動 | パニック、未定義動作など |
 | 解放後アクセス・二重解放の挙動 | パニック、未定義動作など |
+
+**マルチスレッドのターゲット別実装方針**
+
+| ターゲット | スレッド実装 | スイッチ方式 | ミューテックス |
+|---|---|---|---|
+| C（x86） | pthread | プリエンプティブ | pthread_mutex |
+| WASM-mt | WASMスレッド | プリエンプティブ | WASMアトミック |
+| WASM-st | ジェネレーター | コオペラティブ | no-op |
+| TypeScript | ジェネレーター | コオペラティブ | no-op |
+
+- WASM-st / TypeScript のコオペラティブ実装では、バックエンドはループ先頭・関数呼び出し前後などに `yield` ポイントを自動挿入することでコンテキストスイッチを実現する。`yield` の挿入粒度は実装依存とする（**IMPLEMENTATION-DEFINED**）。コオペラティブ環境ではミューテックスをno-opとして実装してよい。
+- WASMスレッドにはSharedArrayBufferが必要であり、ブラウザ環境ではHTTPSおよびセキュリティヘッダーの設定が必要となる場合がある。バックエンドはWASM-mt版とWASM-st版の2種類のバイナリを出力しなければならない（**MUST**）。ホスト側はSharedArrayBufferの利用可否を起動時に検出し、適切なバイナリを選択する。
 
 ---
 
@@ -498,3 +680,29 @@ if (a) { ... } else { if (b) { ... } else { ... } }
 const s: string = "hello\nworld"; // 改行を含む文字列
 const t: string = "she said \"hi\""; // ダブルクォートを含む文字列
 ```
+
+---
+
+## 13. マルチスレッド仕様 (Multithreading)
+
+### 13.1 基本方針
+
+- mozaicScriptのスレッドコードは**プリエンプティブなマルチスレッド環境を前提**として記述しなければならない（**MUST**）。
+- スレッドの切り替えタイミングはターゲットアーキテクチャおよび実装に依存する（**IMPLEMENTATION-DEFINED**）。
+- プリエンプティブとコオペラティブの違いを前提としたコードを書いてはならない（**MUST NOT**）。
+- 共有メモリへのアクセス時はミューテックスを必ず使用しなければならない（**MUST**）。
+
+### 13.2 スレッドモデル
+
+共有メモリ型マルチスレッドを採用する。スレッド間で同一のヒープ空間を共有する。
+
+### 13.3 組み込み命令
+
+マルチスレッド関連の組み込み命令は §9.11 に定義する。
+
+### 13.4 将来対応事項（現バージョン対象外）
+
+| 項目 | 備考 |
+|------|------|
+| TypeScript Web Worker対応 | ジェネレーター方式で当面対応 |
+| WebGPU / CUDA GPU対応 | マルチスレッド対応後の将来バージョン |

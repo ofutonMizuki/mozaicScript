@@ -52,7 +52,25 @@ export type ASTNode =
     | ReturnStmt
     | BreakStmt
     | RawLiteral
-    | MemberAccess;
+    | MemberAccess
+    | ThreadSpawn
+    | ThreadJoin
+    | ThreadPoolCreate
+    | ThreadPoolSubmit
+    | ThreadPoolWait
+    | ThreadPoolDestroy
+    | MutexCreate
+    | MutexLock
+    | MutexUnlock
+    | CondVarCreate
+    | CondVarWait
+    | CondVarSignal
+    | CondVarBroadcast
+    | AtomicLoad
+    | AtomicStore
+    | AtomicCas
+    | AtomicFetchAdd
+    | AtomicFetchSub;
 
 export interface ImportDecl {
     type: "ImportDecl";
@@ -180,6 +198,105 @@ export interface RawLiteral {
     type: "RawLiteral";
     kind: "int" | "float" | "char";
     value: number;
+}
+
+// マルチスレッドノード
+export interface ThreadSpawn {
+    type: "ThreadSpawn";
+    resolvedType: "_m64";
+    fnName: string;
+    args: ASTNode[];
+}
+export interface ThreadJoin {
+    type: "ThreadJoin";
+    resolvedType: "void";
+    threadId: ASTNode;
+}
+export interface ThreadPoolCreate {
+    type: "ThreadPoolCreate";
+    resolvedType: "_m64";
+    size: ASTNode;
+}
+export interface ThreadPoolSubmit {
+    type: "ThreadPoolSubmit";
+    resolvedType: "void";
+    pool: ASTNode;
+    fnName: string;
+    args: ASTNode[];
+}
+export interface ThreadPoolWait {
+    type: "ThreadPoolWait";
+    resolvedType: "void";
+    pool: ASTNode;
+}
+export interface ThreadPoolDestroy {
+    type: "ThreadPoolDestroy";
+    resolvedType: "void";
+    pool: ASTNode;
+}
+export interface MutexCreate {
+    type: "MutexCreate";
+    resolvedType: "_m64";
+}
+export interface MutexLock {
+    type: "MutexLock";
+    resolvedType: "void";
+    mutexId: ASTNode;
+}
+export interface MutexUnlock {
+    type: "MutexUnlock";
+    resolvedType: "void";
+    mutexId: ASTNode;
+}
+export interface CondVarCreate {
+    type: "CondVarCreate";
+    resolvedType: "_m64";
+}
+export interface CondVarWait {
+    type: "CondVarWait";
+    resolvedType: "void";
+    condVar: ASTNode;
+    mutexId: ASTNode;
+}
+export interface CondVarSignal {
+    type: "CondVarSignal";
+    resolvedType: "void";
+    condVar: ASTNode;
+}
+export interface CondVarBroadcast {
+    type: "CondVarBroadcast";
+    resolvedType: "void";
+    condVar: ASTNode;
+}
+export interface AtomicLoad {
+    type: "AtomicLoad";
+    resolvedType: "_m32";
+    ptr: ASTNode;
+}
+export interface AtomicStore {
+    type: "AtomicStore";
+    resolvedType: "void";
+    ptr: ASTNode;
+    value: ASTNode;
+}
+export interface AtomicCas {
+    type: "AtomicCas";
+    resolvedType: "boolean";
+    ptr: ASTNode;
+    expected: ASTNode;
+    desired: ASTNode;
+}
+export interface AtomicFetchAdd {
+    type: "AtomicFetchAdd";
+    resolvedType: "_m32";
+    ptr: ASTNode;
+    value: ASTNode;
+}
+export interface AtomicFetchSub {
+    type: "AtomicFetchSub";
+    resolvedType: "_m32";
+    ptr: ASTNode;
+    value: ASTNode;
 }
 
 export interface MozaicScriptAST {
@@ -381,7 +498,85 @@ export const builtins: Map<string, BuiltinFn> = new Map([
     }],
 
     // __builtin_if / __builtin_while / __builtin_sizeof は evaluator で特別処理
+
+    // ---- マルチスレッド（エンジンはシングルスレッド動作のためシミュレーション） ----
+    // thread_spawn: タスクキューに積む。thread_join 時に順次実行する。
+    // mutex_* / condvar_* : no-op（シングルスレッドなので競合なし）
+    // atomic_* : 通常の読み書きとして実装（競合なし）
+
+    ["__builtin_mutex_create",  ([]) => primitive(1)],      // ダミーID
+    ["__builtin_mutex_lock",    ([_m]) => voidValue()],
+    ["__builtin_mutex_unlock",  ([_m]) => voidValue()],
+    ["__builtin_condvar_create",    ([]) => primitive(1)],  // ダミーID
+    ["__builtin_condvar_wait",      ([_cv, _m]) => voidValue()],
+    ["__builtin_condvar_signal",    ([_cv]) => voidValue()],
+    ["__builtin_condvar_broadcast", ([_cv]) => voidValue()],
+
+    ["__builtin_atomic_load",      ([ptr]) => HeapManager.read((ptr as any).value)],
+    ["__builtin_atomic_store",     ([ptr, val]) => { HeapManager.write((ptr as any).value, val); return voidValue(); }],
+    ["__builtin_atomic_cas",       ([ptr, expected, desired]) => {
+        const cur = HeapManager.read((ptr as any).value) as any;
+        if (cur.value === (expected as any).value) {
+            HeapManager.write((ptr as any).value, desired);
+            return primitive(1);
+        }
+        return primitive(0);
+    }],
+    ["__builtin_atomic_fetch_add", ([ptr, val]) => {
+        const cur = HeapManager.read((ptr as any).value) as any;
+        HeapManager.write((ptr as any).value, primitive(cur.value + (val as any).value));
+        return primitive(cur.value);
+    }],
+    ["__builtin_atomic_fetch_sub", ([ptr, val]) => {
+        const cur = HeapManager.read((ptr as any).value) as any;
+        HeapManager.write((ptr as any).value, primitive(cur.value - (val as any).value));
+        return primitive(cur.value);
+    }],
 ]);
+
+// スレッドマネージャー（シングルスレッドシミュレーション用）
+export class ThreadManager {
+    private static tasks: Map<number, { fnName: string; args: any[] }> = new Map();
+    private static pools: Map<number, { fnName: string; args: any[] }[]> = new Map();
+    private static nextId = 1;
+
+    static enqueue(fnName: string, args: any[]): number {
+        const id = this.nextId++;
+        this.tasks.set(id, { fnName, args });
+        return id;
+    }
+
+    static join(id: number, evaluator: any): void {
+        const task = this.tasks.get(id);
+        if (task) {
+            const fn = evaluator.functions.get(task.fnName);
+            if (fn) evaluator.callFunction(fn, task.args, evaluator.globalEnv);
+            this.tasks.delete(id);
+        }
+    }
+
+    static createPool(_size: number): number {
+        const id = this.nextId++;
+        this.pools.set(id, []);
+        return id;
+    }
+
+    static submitToPool(poolId: number, fnName: string, args: any[]): void {
+        this.pools.get(poolId)?.push({ fnName, args });
+    }
+
+    static waitPool(poolId: number, evaluator: any): void {
+        for (const task of this.pools.get(poolId) ?? []) {
+            const fn = evaluator.functions.get(task.fnName);
+            if (fn) evaluator.callFunction(fn, task.args, evaluator.globalEnv);
+        }
+        this.pools.set(poolId, []);
+    }
+
+    static destroyPool(poolId: number): void {
+        this.pools.delete(poolId);
+    }
+}
 
 // パニックエラー
 export class PanicError extends Error {
@@ -617,6 +812,68 @@ export class Evaluator {
                 throw new BreakSignal();
             }
 
+            // ---- マルチスレッドノード（シングルスレッドシミュレーション） ----
+            case "ThreadSpawn": {
+                // タスクキューに積み、thread_join 時に順次実行する
+                const taskId = ThreadManager.enqueue(node.fnName, node.args.map((a: ASTNode) => this.eval(a, env)));
+                return primitive(taskId);
+            }
+            case "ThreadJoin": {
+                const id = (this.eval(node.threadId, env) as any).value;
+                ThreadManager.join(id, this);
+                return voidValue();
+            }
+            case "ThreadPoolCreate": {
+                const poolId = ThreadManager.createPool((this.eval(node.size, env) as any).value);
+                return primitive(poolId);
+            }
+            case "ThreadPoolSubmit": {
+                const poolId = (this.eval(node.pool, env) as any).value;
+                ThreadManager.submitToPool(poolId, node.fnName, node.args.map((a: ASTNode) => this.eval(a, env)));
+                return voidValue();
+            }
+            case "ThreadPoolWait": {
+                const poolId = (this.eval(node.pool, env) as any).value;
+                ThreadManager.waitPool(poolId, this);
+                return voidValue();
+            }
+            case "ThreadPoolDestroy": {
+                const poolId = (this.eval(node.pool, env) as any).value;
+                ThreadManager.destroyPool(poolId);
+                return voidValue();
+            }
+            case "MutexCreate":
+            case "CondVarCreate": {
+                return primitive(1); // no-op: ダミーID
+            }
+            case "MutexLock":
+            case "MutexUnlock":
+            case "CondVarWait":
+            case "CondVarSignal":
+            case "CondVarBroadcast": {
+                return voidValue(); // no-op
+            }
+            case "AtomicLoad": {
+                const fn = builtins.get("__builtin_atomic_load")!;
+                return fn([this.eval(node.ptr, env)]);
+            }
+            case "AtomicStore": {
+                const fn = builtins.get("__builtin_atomic_store")!;
+                return fn([this.eval(node.ptr, env), this.eval(node.value, env)]);
+            }
+            case "AtomicCas": {
+                const fn = builtins.get("__builtin_atomic_cas")!;
+                return fn([this.eval(node.ptr, env), this.eval(node.expected, env), this.eval(node.desired, env)]);
+            }
+            case "AtomicFetchAdd": {
+                const fn = builtins.get("__builtin_atomic_fetch_add")!;
+                return fn([this.eval(node.ptr, env), this.eval(node.value, env)]);
+            }
+            case "AtomicFetchSub": {
+                const fn = builtins.get("__builtin_atomic_fetch_sub")!;
+                return fn([this.eval(node.ptr, env), this.eval(node.value, env)]);
+            }
+
             default:
                 return voidValue();
         }
@@ -744,10 +1001,13 @@ export class Evaluator {
         for (const field of classDef.members) {
             if (field.access === "private") {
                 switch (field.resolvedType) {
+                    case "_m8":   totalBytes += 1;  break;
+                    case "_m16":  totalBytes += 2;  break;
                     case "_m32":  totalBytes += 4;  break;
                     case "_m64":  totalBytes += 8;  break;
                     case "_m128": totalBytes += 16; break;
                     case "_m256": totalBytes += 32; break;
+                    case "_m512": totalBytes += 64; break;
                 }
             }
         }
@@ -888,7 +1148,8 @@ ts-node index.ts output.json
 
 ## 10. 実装上の注意事項
 
-- **`__builtin_sizeof`** はクラスの `private` フィールドの型（`_m32`=4, `_m64`=8, `_m128`=16, `_m256`=32バイト）の合計を返す。`evaluator.ts` 内の `evalSizeof()` で実装し、`builtins.ts` には登録しない。
+- **`__builtin_sizeof`** はクラスの `private` フィールドの型（`_m8`=1, `_m16`=2, `_m32`=4, `_m64`=8, `_m128`=16, `_m256`=32, `_m512`=64バイト）の合計を返す。`evaluator.ts` 内の `evalSizeof()` で実装し、`builtins.ts` には登録しない。
+- **マルチスレッドノード** はエンジンがシングルスレッドで動作するためシミュレーションとして処理する。`ThreadSpawn` / `ThreadPoolSubmit` はタスクキュー（`ThreadManager`）に積み、`ThreadJoin` / `ThreadPoolWait` 時に同期的に実行する。`mutex_*` / `condvar_*` は no-op。`atomic_*` は通常のヒープ読み書きとして処理する。
 - **`__builtin_stdin_readline`** は現バージョンでは未実装。
 - **ヒープ管理** はJavaScriptの `Map` で模倣しており、実際のメモリアドレスとは異なる。
 - **`this` のフィールド更新** はコンストラクタ・メソッド内で `this` を参照して直接変更する形で実装する。

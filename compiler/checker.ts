@@ -14,37 +14,106 @@ export class CheckError extends Error {
 // ── __builtin_* 戻り型テーブル ────────────────────────────────────────────────
 
 const BUILTIN_RET: Record<string, string> = {
+    // i32
     __builtin_i32_add: '_m32', __builtin_i32_sub: '_m32', __builtin_i32_mul: '_m32',
     __builtin_i32_div: '_m32', __builtin_i32_mod: '_m32', __builtin_i32_neg: '_m32',
     __builtin_i32_eq:  '_m32', __builtin_i32_lt:  '_m32', __builtin_i32_gt:  '_m32',
     __builtin_i32_or:  '_m32', __builtin_i32_and: '_m32', __builtin_i32_not: '_m32',
+    __builtin_i32_shl: '_m32', __builtin_i32_shr: '_m32',
+    __builtin_i32_rotl:'_m32', __builtin_i32_rotr:'_m32',
+    __builtin_i32_clz: '_m32', __builtin_i32_ctz: '_m32', __builtin_i32_popcnt:'_m32',
     __builtin_i32_bitwise_and: '_m32', __builtin_i32_bitwise_or:  '_m32',
     __builtin_i32_bitwise_xor: '_m32', __builtin_i32_shift_left:  '_m32',
     __builtin_i32_shift_right: '_m32',
+    // u32
     __builtin_u32_add: '_m32', __builtin_u32_sub: '_m32', __builtin_u32_mul: '_m32',
     __builtin_u32_div: '_m32', __builtin_u32_mod: '_m32',
     __builtin_u32_eq:  '_m32', __builtin_u32_lt:  '_m32', __builtin_u32_gt:  '_m32',
-    __builtin_u32_or:  '_m32', __builtin_u32_and: '_m32', __builtin_u32_not: '_m32',
+    __builtin_u32_or:  '_m32', __builtin_u32_and: '_m32',
+    __builtin_u32_shl: '_m32', __builtin_u32_shr: '_m32',
     __builtin_u32_bitwise_and: '_m32', __builtin_u32_bitwise_or:  '_m32',
     __builtin_u32_bitwise_xor: '_m32', __builtin_u32_shift_left:  '_m32',
     __builtin_u32_shift_right: '_m32',
+    // f32
     __builtin_f32_add: '_m32', __builtin_f32_sub: '_m32', __builtin_f32_mul: '_m32',
-    __builtin_f32_div: '_m32', __builtin_f32_mod: '_m32',
+    __builtin_f32_div: '_m32', __builtin_f32_mod: '_m32', __builtin_f32_neg: '_m32',
     __builtin_f32_eq:  '_m32', __builtin_f32_lt:  '_m32', __builtin_f32_gt:  '_m32',
+    __builtin_f32_abs: '_m32', __builtin_f32_sqrt:'_m32', __builtin_f32_floor:'_m32',
+    __builtin_f32_ceil:'_m32', __builtin_f32_trunc:'_m32',__builtin_f32_nearest:'_m32',
+    __builtin_f32_min: '_m32', __builtin_f32_max: '_m32',
+    __builtin_f32_sin: '_m32', __builtin_f32_cos: '_m32', __builtin_f32_tan:  '_m32',
+    __builtin_f32_exp: '_m32', __builtin_f32_log: '_m32', __builtin_f32_pow:  '_m32',
+    __builtin_f32_atan:'_m32', __builtin_f32_atan2:'_m32',
+    // i64
+    __builtin_i64_add: '_m64', __builtin_i64_sub: '_m64', __builtin_i64_mul: '_m64',
+    __builtin_i64_div: '_m64', __builtin_i64_mod: '_m64', __builtin_i64_neg: '_m64',
+    __builtin_i64_eq:  '_m64', __builtin_i64_lt:  '_m64', __builtin_i64_gt:  '_m64',
+    __builtin_i64_or:  '_m64', __builtin_i64_and: '_m64', __builtin_i64_not: '_m64',
+    __builtin_i64_shl: '_m64', __builtin_i64_shr: '_m64',
+    __builtin_i64_rotl:'_m64', __builtin_i64_rotr:'_m64',
+    __builtin_i64_clz: '_m64', __builtin_i64_ctz: '_m64', __builtin_i64_popcnt:'_m64',
+    // u64
+    __builtin_u64_add: '_m64', __builtin_u64_sub: '_m64', __builtin_u64_mul: '_m64',
+    __builtin_u64_div: '_m64', __builtin_u64_mod: '_m64',
+    __builtin_u64_eq:  '_m64', __builtin_u64_lt:  '_m64', __builtin_u64_gt:  '_m64',
+    __builtin_u64_or:  '_m64', __builtin_u64_and: '_m64', __builtin_u64_not: '_m64',
+    __builtin_u64_shl: '_m64', __builtin_u64_shr: '_m64',
+    // f64
+    __builtin_f64_add: '_m64', __builtin_f64_sub: '_m64', __builtin_f64_mul: '_m64',
+    __builtin_f64_div: '_m64', __builtin_f64_mod: '_m64', __builtin_f64_neg: '_m64',
+    __builtin_f64_eq:  '_m64', __builtin_f64_lt:  '_m64', __builtin_f64_gt:  '_m64',
+    __builtin_f64_abs: '_m64', __builtin_f64_sqrt:'_m64', __builtin_f64_floor:'_m64',
+    __builtin_f64_ceil:'_m64', __builtin_f64_trunc:'_m64',__builtin_f64_nearest:'_m64',
+    __builtin_f64_min: '_m64', __builtin_f64_max: '_m64',
+    __builtin_f64_sin: '_m64', __builtin_f64_cos: '_m64', __builtin_f64_tan:  '_m64',
+    __builtin_f64_exp: '_m64', __builtin_f64_log: '_m64', __builtin_f64_pow:  '_m64',
+    __builtin_f64_atan:'_m64', __builtin_f64_atan2:'_m64',
+    // 型変換
     __builtin_i32_to_f32: '_m32', __builtin_f32_to_i32: '_m32',
     __builtin_i32_to_u32: '_m32', __builtin_u32_to_i32: '_m32',
-    __builtin_malloc:      '_m32', __builtin_free:       'void',
-    __builtin_mem_read32:  '_m32', __builtin_mem_write32:'void',
-    __builtin_ptr_alloc:   '_m32', __builtin_ptr_read:   '_m32',
-    __builtin_ptr_write:   'void', __builtin_ptr_realloc:'_m32',
-    __builtin_ptr_free:    'void', __builtin_ptr_copy:   'void',
-    __builtin_mem_set:     'void',
-    __builtin_sizeof:      '_m32',
-    __builtin_stdout_write:'void', __builtin_stderr_write:'void',
-    __builtin_stdin_read:  '_m32',
-    __builtin_str_length:  '_m32',
-    __builtin_panic:       'void',
-    __builtin_if:          '_m32', __builtin_while:      '_m32',
+    __builtin_u32_to_f32: '_m32', __builtin_f32_to_u32: '_m32',
+    __builtin_i32_to_i64: '_m64', __builtin_u32_to_u64: '_m64',
+    __builtin_i64_to_i32: '_m32', __builtin_u64_to_u32: '_m32',
+    __builtin_f32_to_f64: '_m64', __builtin_f64_to_f32: '_m32',
+    __builtin_f64_to_i64: '_m64', __builtin_i64_to_f64: '_m64',
+    __builtin_u64_to_f64: '_m64',
+    // メモリ
+    __builtin_malloc:       '_m32', __builtin_free:        'void',
+    __builtin_mem_read8:    '_m32', __builtin_mem_read16:  '_m32',
+    __builtin_mem_read32:   '_m32', __builtin_mem_read64:  '_m64',
+    __builtin_mem_write8:   'void', __builtin_mem_write16: 'void',
+    __builtin_mem_write32:  'void', __builtin_mem_write64: 'void',
+    __builtin_zeroinit:     '_m32',
+    __builtin_ptr_alloc:    '_m32', __builtin_ptr_read:    '_m32',
+    __builtin_ptr_write:    'void', __builtin_ptr_realloc: '_m32',
+    __builtin_ptr_free:     'void', __builtin_ptr_copy:    'void',
+    __builtin_mem_set:      'void',
+    __builtin_sizeof:       '_m32',
+    // I/O
+    __builtin_stdout_write: 'void', __builtin_stderr_write:'void',
+    __builtin_stdin_read:   '_m32', __builtin_stdin_readline:'void',
+    __builtin_str_length:   '_m32',
+    __builtin_panic:        'void',
+    __builtin_if:           '_m32', __builtin_while:       '_m32',
+    // スレッド
+    __builtin_thread_spawn:        '_m64',
+    __builtin_thread_join:         'void',
+    __builtin_threadpool_create:   '_m64',
+    __builtin_threadpool_submit:   'void',
+    __builtin_threadpool_wait:     'void',
+    __builtin_threadpool_destroy:  'void',
+    __builtin_mutex_create:        '_m64',
+    __builtin_mutex_lock:          'void',
+    __builtin_mutex_unlock:        'void',
+    __builtin_condvar_create:      '_m64',
+    __builtin_condvar_wait:        'void',
+    __builtin_condvar_signal:      'void',
+    __builtin_condvar_broadcast:   'void',
+    __builtin_atomic_load:         '_m32',
+    __builtin_atomic_store:        'void',
+    __builtin_atomic_cas:          '_m32',
+    __builtin_atomic_fetch_add:    '_m32',
+    __builtin_atomic_fetch_sub:    '_m32',
 };
 
 // ── ヘルパー ──────────────────────────────────────────────────────────────────
@@ -554,7 +623,7 @@ export class Checker {
     // ── 型解決 ────────────────────────────────────────────────────────────────
 
     resolveType(pt: A.PType, isMoc: boolean): string {
-        const MOC_ONLY = ['_m32', '_m64', '_m128', '_m256'];
+        const MOC_ONLY = ['_m8', '_m16', '_m32', '_m64', '_m128', '_m256', '_m512'];
         if (MOC_ONLY.includes(pt.name) && !isMoc) {
             throw new CheckError(`型 '${pt.name}' は .moc ファイル内でのみ使用可能`);
         }

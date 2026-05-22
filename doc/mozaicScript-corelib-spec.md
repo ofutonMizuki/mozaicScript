@@ -45,6 +45,9 @@ type string = Array<char>;
 | `i32` | 符号あり32bit整数 |
 | `u32` | 符号なし32bit整数 |
 | `f32` | 32bit浮動小数点数（IEEE 754） |
+| `i64` | 符号あり64bit整数（ビットボード演算等に必須） |
+| `u64` | 符号なし64bit整数（ビットボード演算等に必須） |
+| `f64` | 64bit浮動小数点数（IEEE 754、MLP学習に必須） |
 | `Exception` | エラー情報 |
 | `Result<T>` | エラーハンドリングコンテナ |
 | `Option<T>` | オプショナル値コンテナ |
@@ -53,18 +56,6 @@ type string = Array<char>;
 | `Stdout` | 標準出力 |
 | `Stderr` | 標準エラー出力 |
 | `Stdin` | 標準入力 |
-
----
-
-## 4. 任意拡張クラス
-
-実装依存。提供する場合は挙動を文書化しなければならない（**MUST**）。
-
-| クラス | 説明 |
-|--------|------|
-| `i64` | 符号あり64bit整数 |
-| `u64` | 符号なし64bit整数 |
-| `f64` | 64bit浮動小数点数（IEEE 754） |
 
 ---
 
@@ -118,13 +109,69 @@ type string = Array<char>;
 | `operatorNeg(): f32` | 単項マイナス |
 | `getBits(): _m32` | 内部表現取得（`mocp public`） |
 
-### 5.5 `Exception`
+### 5.5 `i64`
+
+`i32` と同一のメソッド構成。内部の組み込み命令は `__builtin_i64_*` 系を使用する。
+
+| メソッド | 説明 |
+|----------|------|
+| `operator+(other: i64): i64` | 加算 |
+| `operator-(other: i64): i64` | 減算 |
+| `operator*(other: i64): i64` | 乗算 |
+| `operator/(other: i64): i64` | 除算 |
+| `operator%(other: i64): i64` | 剰余 |
+| `operator==(other: i64): boolean` | 等価比較 |
+| `operator<(other: i64): boolean` | 小なり |
+| `operator>(other: i64): boolean` | 大なり |
+| `operatorNeg(): i64` | 単項マイナス |
+| `toI32(): i32` | i32へ変換（下位32bit） |
+| `toF64(): f64` | f64へ変換 |
+| `getBits(): _m64` | 内部表現取得（`mocp public`） |
+
+### 5.6 `u64`
+
+`i64` と同一のメソッド構成（**ただし `operatorNeg()` を除く**）。内部の組み込み命令は `__builtin_u64_*` 系を使用する。
+
+| メソッド | 説明 |
+|----------|------|
+| `operator+(other: u64): u64` | 加算 |
+| `operator-(other: u64): u64` | 減算 |
+| `operator*(other: u64): u64` | 乗算 |
+| `operator/(other: u64): u64` | 除算 |
+| `operator%(other: u64): u64` | 剰余 |
+| `operator==(other: u64): boolean` | 等価比較 |
+| `operator<(other: u64): boolean` | 小なり |
+| `operator>(other: u64): boolean` | 大なり |
+| `toU32(): u32` | u32へ変換（下位32bit） |
+| `toF64(): f64` | f64へ変換 |
+| `getBits(): _m64` | 内部表現取得（`mocp public`） |
+
+### 5.7 `f64`
+
+`f32` と同一のメソッド構成。内部の組み込み命令は `__builtin_f64_*` 系を使用する。
+
+| メソッド | 説明 |
+|----------|------|
+| `operator+(other: f64): f64` | 加算 |
+| `operator-(other: f64): f64` | 減算 |
+| `operator*(other: f64): f64` | 乗算 |
+| `operator/(other: f64): f64` | 除算 |
+| `operator%(other: f64): f64` | 剰余 |
+| `operator==(other: f64): boolean` | 等価比較（IEEE 754準拠） |
+| `operator<(other: f64): boolean` | 小なり |
+| `operator>(other: f64): boolean` | 大なり |
+| `operatorNeg(): f64` | 単項マイナス |
+| `toI64(): i64` | i64へ変換（切り捨て） |
+| `toF32(): f32` | f32へ変換（精度縮小） |
+| `getBits(): _m64` | 内部表現取得（`mocp public`） |
+
+### 5.8 `Exception`
 
 | メンバ | 説明 |
 |--------|------|
 | `message: string` | エラーメッセージ（`public` フィールド） |
 
-### 5.6 `Result<T>`
+### 5.9 `Result<T>`
 
 | メソッド | 説明 |
 |----------|------|
@@ -137,7 +184,7 @@ type string = Array<char>;
 new Result<T>(success: boolean, val: T, err: Exception)
 ```
 
-### 5.7 `Option<T>`
+### 5.10 `Option<T>`
 
 `some` / `none` 状態はコンストラクタで生成する。
 
@@ -154,7 +201,7 @@ new Option<i32>(new boolean(false), __builtin_zeroinit());
 | `isSome(): boolean` | 値があるかどうかを確認する |
 | `unwrap(): T` | 値を取り出す（値なし時はパニック） |
 
-### 5.8 `Array<T>`
+### 5.11 `Array<T>`
 
 | メソッド | 説明 |
 |----------|------|
@@ -166,7 +213,7 @@ new Option<i32>(new boolean(false), __builtin_zeroinit());
 | `free(): void` | メモリ解放 |
 | `getPtr(): _m32` | 内部ポインタ取得（`mocp public`） |
 
-### 5.9 `Ptr<T>`
+### 5.12 `Ptr<T>`
 
 ヌルポインタはアドレス `0` として表現される。
 
@@ -178,14 +225,14 @@ new Option<i32>(new boolean(false), __builtin_zeroinit());
 | `free(): void` | メモリ解放 |
 | `getAddr(): _m32` | アドレス取得（`mocp public`） |
 
-### 5.10 `Stdout` / `Stderr`
+### 5.13 `Stdout` / `Stderr`
 
 | メソッド | 説明 |
 |----------|------|
 | `write(s: string): void` | 文字列を出力 |
 | `writeLine(s: string): void` | 文字列を出力して改行 |
 
-### 5.11 `Stdin`
+### 5.14 `Stdin`
 
 | メソッド | 説明 |
 |----------|------|

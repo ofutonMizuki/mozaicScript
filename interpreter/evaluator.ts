@@ -3,7 +3,7 @@ import * as nodePath from "path";
 import { ASTNode, ClassDecl, FunctionDecl, MozaicScriptAST } from "./types";
 import { RuntimeValue, ObjectValue, primitive, voidValue } from "./values";
 import { Environment } from "./environment";
-import { builtins, PanicError, HeapManager } from "./builtins";
+import { builtins, PanicError, HeapManager, ThreadManager } from "./builtins";
 
 class ReturnSignal {
     constructor(public value: RuntimeValue) {}
@@ -151,6 +151,92 @@ export class Evaluator {
                 throw new BreakSignal();
             }
 
+            // ── マルチスレッドノード（シングルスレッドシミュレーション） ──────────
+            case "ThreadSpawn": {
+                const args = node.args.map((a: ASTNode) => this.eval(a, env));
+                const id = ThreadManager.enqueue(node.fnName, args);
+                return primitive(id);
+            }
+
+            case "ThreadJoin": {
+                const id = (this.eval(node.threadId, env) as any).value as number;
+                ThreadManager.joinTask(id, (fnName, args) => this.callTopFunction(fnName, args));
+                return voidValue();
+            }
+
+            case "ThreadPoolCreate": {
+                const size = (this.eval(node.size, env) as any).value as number;
+                return primitive(ThreadManager.createPool(size));
+            }
+
+            case "ThreadPoolSubmit": {
+                const poolId = (this.eval(node.pool, env) as any).value as number;
+                const args = node.args.map((a: ASTNode) => this.eval(a, env));
+                ThreadManager.submitToPool(poolId, node.fnName, args);
+                return voidValue();
+            }
+
+            case "ThreadPoolWait": {
+                const poolId = (this.eval(node.pool, env) as any).value as number;
+                ThreadManager.waitPool(poolId, (fnName, args) => this.callTopFunction(fnName, args));
+                return voidValue();
+            }
+
+            case "ThreadPoolDestroy": {
+                const poolId = (this.eval(node.pool, env) as any).value as number;
+                ThreadManager.destroyPool(poolId);
+                return voidValue();
+            }
+
+            case "MutexCreate":
+            case "CondVarCreate": {
+                return primitive(ThreadManager.nextId());
+            }
+
+            case "MutexLock":
+            case "MutexUnlock":
+            case "CondVarWait":
+            case "CondVarSignal":
+            case "CondVarBroadcast": {
+                return voidValue();
+            }
+
+            case "AtomicLoad": {
+                return HeapManager.read((this.eval(node.ptr, env) as any).value);
+            }
+
+            case "AtomicStore": {
+                HeapManager.write((this.eval(node.ptr, env) as any).value, this.eval(node.value, env));
+                return voidValue();
+            }
+
+            case "AtomicCas": {
+                const addr = (this.eval(node.ptr, env) as any).value;
+                const cur  = HeapManager.read(addr) as any;
+                const exp  = (this.eval(node.expected, env) as any).value;
+                if (cur.value === exp) {
+                    HeapManager.write(addr, this.eval(node.desired, env));
+                    return primitive(1);
+                }
+                return primitive(0);
+            }
+
+            case "AtomicFetchAdd": {
+                const addr = (this.eval(node.ptr, env) as any).value;
+                const cur  = HeapManager.read(addr) as any;
+                const inc  = (this.eval(node.value, env) as any).value;
+                HeapManager.write(addr, primitive(cur.value + inc));
+                return primitive(cur.value);
+            }
+
+            case "AtomicFetchSub": {
+                const addr = (this.eval(node.ptr, env) as any).value;
+                const cur  = HeapManager.read(addr) as any;
+                const dec  = (this.eval(node.value, env) as any).value;
+                HeapManager.write(addr, primitive(cur.value - dec));
+                return primitive(cur.value);
+            }
+
             default:
                 return voidValue();
         }
@@ -278,10 +364,13 @@ export class Evaluator {
         for (const field of classDef.members) {
             if (field.access === "private") {
                 switch (field.resolvedType) {
+                    case "_m8":   totalBytes += 1;  break;
+                    case "_m16":  totalBytes += 2;  break;
                     case "_m32":  totalBytes += 4;  break;
                     case "_m64":  totalBytes += 8;  break;
                     case "_m128": totalBytes += 16; break;
                     case "_m256": totalBytes += 32; break;
+                    case "_m512": totalBytes += 64; break;
                 }
             }
         }
@@ -362,6 +451,13 @@ export class Evaluator {
         }
         this.currentFileExt = prevFileExt;
         return voidValue();
+    }
+
+    // トップレベル関数を名前で呼び出す（スレッドシミュレーション用）
+    private callTopFunction(fnName: string, args: RuntimeValue[]): void {
+        const fn = this.functions.get(fnName);
+        if (!fn) throw new Error(`Thread function not found: ${fnName}`);
+        this.callFunction(fn, args, this.globalEnv);
     }
 
     // ボディの実行

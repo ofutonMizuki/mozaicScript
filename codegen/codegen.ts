@@ -68,8 +68,14 @@ function mangleMethod(method: string): string {
 // ── C名前生成 ──────────────────────────────────────────────────────────────────
 
 function cStructName(mozType: string): string {
-    if (mozType === "_m32" || mozType === "_m64" || mozType === "_m128") return "int32_t";
-    if (mozType === "void") return "void";
+    if (mozType === "_m8")   return "int8_t";
+    if (mozType === "_m16")  return "int16_t";
+    if (mozType === "_m32")  return "int32_t";
+    if (mozType === "_m64")  return "int64_t";
+    if (mozType === "_m128") return "int32_t"; // 未実装: 128bit は int32_t で近似
+    if (mozType === "_m256") return "int32_t"; // 未実装: 256bit は int32_t で近似
+    if (mozType === "_m512") return "int32_t"; // 未実装: 512bit は int32_t で近似
+    if (mozType === "void")  return "void";
     const base = baseType(mozType);
     const args = typeArgs(mozType);
     if (args.length === 0) return `_ms_${base}`;
@@ -291,6 +297,46 @@ static inline float _ms_bits_f32(int32_t b) {
     float r; memcpy(&r, &b, 4); return r;
 }
 
+/* ── f64 bit conversion ── */
+static inline int64_t _ms_f64_bits(double d) {
+    int64_t r; memcpy(&r, &d, 8); return r;
+}
+static inline double _ms_bits_f64(int64_t b) {
+    double r; memcpy(&r, &b, 8); return r;
+}
+
+/* ── 64-bit heap r/w (word index = byte_offset / 4) ── */
+static int64_t _ms_mem_read64(int32_t ptr, int64_t byte_offset) {
+    int64_t r;
+    memcpy(&r, &_ms_heap[(int32_t)(ptr) + (int32_t)(byte_offset) / 4], 8);
+    return r;
+}
+static void _ms_mem_write64(int32_t ptr, int64_t byte_offset, int64_t value) {
+    memcpy(&_ms_heap[(int32_t)(ptr) + (int32_t)(byte_offset) / 4], &value, 8);
+}
+
+/* ── 8/16-bit heap r/w ── */
+static int32_t _ms_mem_read8(int64_t ptr, int64_t byte_offset) {
+    return (uint8_t)((uint8_t*)_ms_heap)[(int32_t)(ptr) * 4 + (int32_t)(byte_offset)];
+}
+static int32_t _ms_mem_read16(int64_t ptr, int64_t byte_offset) {
+    uint16_t r;
+    memcpy(&r, &((uint8_t*)_ms_heap)[(int32_t)(ptr) * 4 + (int32_t)(byte_offset)], 2);
+    return (int32_t)r;
+}
+static void _ms_mem_write8(int64_t ptr, int64_t byte_offset, int32_t v) {
+    ((uint8_t*)_ms_heap)[(int32_t)(ptr) * 4 + (int32_t)(byte_offset)] = (uint8_t)v;
+}
+static void _ms_mem_write16(int64_t ptr, int64_t byte_offset, int32_t v) {
+    uint16_t u = (uint16_t)v;
+    memcpy(&((uint8_t*)_ms_heap)[(int32_t)(ptr) * 4 + (int32_t)(byte_offset)], &u, 2);
+}
+
+/* ── 64-bit malloc ── */
+static int64_t _ms_malloc64(int64_t size_bytes) {
+    return (int64_t)_ms_malloc((int32_t)size_bytes);
+}
+
 /* ── I/O helpers (defined after structs — forward declare here) ── */
 static void _ms_write_str(int32_t ptr, int32_t len);
 static void _ms_write_str_err(int32_t ptr, int32_t len);
@@ -382,7 +428,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             cls.typeParams.forEach((p, i) => subst.set(p, args[i] ?? p));
             for (const field of cls.members) {
                 const dep = applySubst(field.resolvedType, subst);
-                if (dep !== "_m32" && dep !== "_m64" && dep !== "void") {
+                if (!["_m8","_m16","_m32","_m64","_m128","_m256","_m512","void"].includes(dep)) {
                     visit(dep);
                 }
             }
@@ -624,8 +670,10 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 // _m32 を返すが関数の返り値型が bits フィールドを持つラッパー型の場合は強制変換
                 const resolvedRet = retMozType ? applySubst(retMozType, subst) : "";
                 const resolvedExpr = applySubst(exprMoz, subst);
-                if (resolvedRet && resolvedRet !== "_m32" && resolvedRet !== "void"
-                    && resolvedExpr === "_m32"
+                const isPrimRet = resolvedRet === "_m32" || resolvedRet === "_m64";
+                const isPrimExpr = resolvedExpr === "_m32" || resolvedExpr === "_m64";
+                if (resolvedRet && !isPrimRet && resolvedRet !== "void"
+                    && isPrimExpr
                     && this.hasSimpleBitsField(resolvedRet)) {
                     const ct  = cStructName(resolvedRet);
                     const tmp = this.nextTmp();
@@ -834,6 +882,104 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             case "__builtin_f32_gt":  return `(_ms_bits_f32(${a(0)}) > _ms_bits_f32(${a(1)}) ? 1 : 0)`;
             case "__builtin_f32_neg": return `_ms_f32_bits(-_ms_bits_f32(${a(0)}))`;
 
+            // i32 追加演算
+            case "__builtin_i32_shl":    return `(int32_t)((int32_t)(${a(0)}) << ((${a(1)}) & 31))`;
+            case "__builtin_i32_shr":    return `(int32_t)((int32_t)(${a(0)}) >> ((${a(1)}) & 31))`;
+            case "__builtin_u32_shl":    return `(int32_t)((uint32_t)(${a(0)}) << ((${a(1)}) & 31))`;
+            case "__builtin_u32_shr":    return `(int32_t)((uint32_t)(${a(0)}) >> ((${a(1)}) & 31))`;
+            case "__builtin_u32_or":     return `(int32_t)((uint32_t)(${a(0)}) | (uint32_t)(${a(1)}))`;
+            case "__builtin_u32_and":    return `(int32_t)((uint32_t)(${a(0)}) & (uint32_t)(${a(1)}))`;
+            case "__builtin_i32_rotl":   return `(int32_t)(((uint32_t)(${a(0)}) << ((${a(1)})&31)) | ((uint32_t)(${a(0)}) >> (32-((${a(1)})&31))))`;
+            case "__builtin_i32_rotr":   return `(int32_t)(((uint32_t)(${a(0)}) >> ((${a(1)})&31)) | ((uint32_t)(${a(0)}) << (32-((${a(1)})&31))))`;
+            case "__builtin_i32_clz":    return `(int32_t)__builtin_clz((uint32_t)(${a(0)}))`;
+            case "__builtin_i32_ctz":    return `(int32_t)__builtin_ctz((uint32_t)(${a(0)}))`;
+            case "__builtin_i32_popcnt": return `(int32_t)__builtin_popcount((uint32_t)(${a(0)}))`;
+
+            // i64 算術
+            case "__builtin_i64_add": return `(int64_t)((int64_t)(${a(0)}) + (int64_t)(${a(1)}))`;
+            case "__builtin_i64_sub": return `(int64_t)((int64_t)(${a(0)}) - (int64_t)(${a(1)}))`;
+            case "__builtin_i64_mul": return `(int64_t)((int64_t)(${a(0)}) * (int64_t)(${a(1)}))`;
+            case "__builtin_i64_div": return `(int64_t)((int64_t)(${a(0)}) / (int64_t)(${a(1)}))`;
+            case "__builtin_i64_mod": return `(int64_t)((int64_t)(${a(0)}) % (int64_t)(${a(1)}))`;
+            case "__builtin_i64_neg": return `(int64_t)(-(int64_t)(${a(0)}))`;
+            case "__builtin_i64_eq":  return `((int64_t)(${a(0)}) == (int64_t)(${a(1)}) ? 1 : 0)`;
+            case "__builtin_i64_lt":  return `((int64_t)(${a(0)}) < (int64_t)(${a(1)}) ? 1 : 0)`;
+            case "__builtin_i64_gt":  return `((int64_t)(${a(0)}) > (int64_t)(${a(1)}) ? 1 : 0)`;
+            case "__builtin_i64_or":  return `(int64_t)((int64_t)(${a(0)}) | (int64_t)(${a(1)}))`;
+            case "__builtin_i64_and": return `(int64_t)((int64_t)(${a(0)}) & (int64_t)(${a(1)}))`;
+            case "__builtin_i64_not": return `((int64_t)(${a(0)}) == 0 ? 1 : 0)`;
+            case "__builtin_i64_shl": return `(int64_t)((int64_t)(${a(0)}) << ((${a(1)}) & 63))`;
+            case "__builtin_i64_shr": return `(int64_t)((int64_t)(${a(0)}) >> ((${a(1)}) & 63))`;
+            case "__builtin_i64_rotl":   return `(int64_t)(((uint64_t)(${a(0)}) << ((${a(1)})&63)) | ((uint64_t)(${a(0)}) >> (64-((${a(1)})&63))))`;
+            case "__builtin_i64_rotr":   return `(int64_t)(((uint64_t)(${a(0)}) >> ((${a(1)})&63)) | ((uint64_t)(${a(0)}) << (64-((${a(1)})&63))))`;
+            case "__builtin_i64_clz":    return `(int64_t)__builtin_clzll((uint64_t)(${a(0)}))`;
+            case "__builtin_i64_ctz":    return `(int64_t)__builtin_ctzll((uint64_t)(${a(0)}))`;
+            case "__builtin_i64_popcnt": return `(int64_t)__builtin_popcountll((uint64_t)(${a(0)}))`;
+
+            // u64 算術
+            case "__builtin_u64_add": return `(int64_t)((uint64_t)(${a(0)}) + (uint64_t)(${a(1)}))`;
+            case "__builtin_u64_sub": return `(int64_t)((uint64_t)(${a(0)}) - (uint64_t)(${a(1)}))`;
+            case "__builtin_u64_mul": return `(int64_t)((uint64_t)(${a(0)}) * (uint64_t)(${a(1)}))`;
+            case "__builtin_u64_div": return `(int64_t)((uint64_t)(${a(0)}) / (uint64_t)(${a(1)}))`;
+            case "__builtin_u64_mod": return `(int64_t)((uint64_t)(${a(0)}) % (uint64_t)(${a(1)}))`;
+            case "__builtin_u64_eq":  return `((uint64_t)(${a(0)}) == (uint64_t)(${a(1)}) ? 1 : 0)`;
+            case "__builtin_u64_lt":  return `((uint64_t)(${a(0)}) < (uint64_t)(${a(1)}) ? 1 : 0)`;
+            case "__builtin_u64_gt":  return `((uint64_t)(${a(0)}) > (uint64_t)(${a(1)}) ? 1 : 0)`;
+            case "__builtin_u64_or":  return `(int64_t)((uint64_t)(${a(0)}) | (uint64_t)(${a(1)}))`;
+            case "__builtin_u64_and": return `(int64_t)((uint64_t)(${a(0)}) & (uint64_t)(${a(1)}))`;
+            case "__builtin_u64_not": return `((uint64_t)(${a(0)}) == 0 ? 1 : 0)`;
+            case "__builtin_u64_shl": return `(int64_t)((uint64_t)(${a(0)}) << ((${a(1)}) & 63))`;
+            case "__builtin_u64_shr": return `(int64_t)((uint64_t)(${a(0)}) >> ((${a(1)}) & 63))`;
+
+            // f64 算術
+            case "__builtin_f64_add": return `_ms_f64_bits(_ms_bits_f64(${a(0)}) + _ms_bits_f64(${a(1)}))`;
+            case "__builtin_f64_sub": return `_ms_f64_bits(_ms_bits_f64(${a(0)}) - _ms_bits_f64(${a(1)}))`;
+            case "__builtin_f64_mul": return `_ms_f64_bits(_ms_bits_f64(${a(0)}) * _ms_bits_f64(${a(1)}))`;
+            case "__builtin_f64_div": return `_ms_f64_bits(_ms_bits_f64(${a(0)}) / _ms_bits_f64(${a(1)}))`;
+            case "__builtin_f64_mod": return `_ms_f64_bits(fmod(_ms_bits_f64(${a(0)}), _ms_bits_f64(${a(1)})))`;
+            case "__builtin_f64_neg": return `_ms_f64_bits(-_ms_bits_f64(${a(0)}))`;
+            case "__builtin_f64_eq":  return `(_ms_bits_f64(${a(0)}) == _ms_bits_f64(${a(1)}) ? 1 : 0)`;
+            case "__builtin_f64_lt":  return `(_ms_bits_f64(${a(0)}) < _ms_bits_f64(${a(1)}) ? 1 : 0)`;
+            case "__builtin_f64_gt":  return `(_ms_bits_f64(${a(0)}) > _ms_bits_f64(${a(1)}) ? 1 : 0)`;
+            case "__builtin_f64_abs":     return `_ms_f64_bits(fabs(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_sqrt":    return `_ms_f64_bits(sqrt(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_floor":   return `_ms_f64_bits(floor(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_ceil":    return `_ms_f64_bits(ceil(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_trunc":   return `_ms_f64_bits(trunc(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_nearest": return `_ms_f64_bits(round(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_min":     return `_ms_f64_bits(fmin(_ms_bits_f64(${a(0)}), _ms_bits_f64(${a(1)})))`;
+            case "__builtin_f64_max":     return `_ms_f64_bits(fmax(_ms_bits_f64(${a(0)}), _ms_bits_f64(${a(1)})))`;
+
+            // f32 追加演算
+            case "__builtin_f32_abs":     return `_ms_f32_bits(fabsf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_sqrt":    return `_ms_f32_bits(sqrtf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_floor":   return `_ms_f32_bits(floorf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_ceil":    return `_ms_f32_bits(ceilf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_trunc":   return `_ms_f32_bits(truncf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_nearest": return `_ms_f32_bits(roundf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_min":     return `_ms_f32_bits(fminf(_ms_bits_f32(${a(0)}), _ms_bits_f32(${a(1)})))`;
+            case "__builtin_f32_max":     return `_ms_f32_bits(fmaxf(_ms_bits_f32(${a(0)}), _ms_bits_f32(${a(1)})))`;
+
+            // 超越関数（f32）
+            case "__builtin_f32_sin":   return `_ms_f32_bits(sinf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_cos":   return `_ms_f32_bits(cosf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_tan":   return `_ms_f32_bits(tanf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_exp":   return `_ms_f32_bits(expf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_log":   return `_ms_f32_bits(logf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_pow":   return `_ms_f32_bits(powf(_ms_bits_f32(${a(0)}), _ms_bits_f32(${a(1)})))`;
+            case "__builtin_f32_atan":  return `_ms_f32_bits(atanf(_ms_bits_f32(${a(0)})))`;
+            case "__builtin_f32_atan2": return `_ms_f32_bits(atan2f(_ms_bits_f32(${a(0)}), _ms_bits_f32(${a(1)})))`;
+
+            // 超越関数（f64）
+            case "__builtin_f64_sin":   return `_ms_f64_bits(sin(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_cos":   return `_ms_f64_bits(cos(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_tan":   return `_ms_f64_bits(tan(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_exp":   return `_ms_f64_bits(exp(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_log":   return `_ms_f64_bits(log(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_pow":   return `_ms_f64_bits(pow(_ms_bits_f64(${a(0)}), _ms_bits_f64(${a(1)})))`;
+            case "__builtin_f64_atan":  return `_ms_f64_bits(atan(_ms_bits_f64(${a(0)})))`;
+            case "__builtin_f64_atan2": return `_ms_f64_bits(atan2(_ms_bits_f64(${a(0)}), _ms_bits_f64(${a(1)})))`;
+
             // 型変換
             case "__builtin_i32_to_f32": return `_ms_f32_bits((float)(int32_t)(${a(0)}))`;
             case "__builtin_i32_to_u32": return `(int32_t)(uint32_t)(int32_t)(${a(0)})`;
@@ -841,11 +987,26 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             case "__builtin_u32_to_i32": return `(int32_t)(uint32_t)(${a(0)})`;
             case "__builtin_f32_to_i32": return `(int32_t)_ms_bits_f32(${a(0)})`;
             case "__builtin_f32_to_u32": return `(int32_t)(uint32_t)_ms_bits_f32(${a(0)})`;
+            case "__builtin_i32_to_i64": return `(int64_t)(int32_t)(${a(0)})`;
+            case "__builtin_u32_to_u64": return `(int64_t)(uint64_t)(uint32_t)(${a(0)})`;
+            case "__builtin_i64_to_i32": return `(int32_t)(int64_t)(${a(0)})`;
+            case "__builtin_u64_to_u32": return `(int32_t)(uint32_t)(uint64_t)(${a(0)})`;
+            case "__builtin_f32_to_f64": return `_ms_f64_bits((double)_ms_bits_f32(${a(0)}))`;
+            case "__builtin_f64_to_f32": return `_ms_f32_bits((float)_ms_bits_f64(${a(0)}))`;
+            case "__builtin_f64_to_i64": return `(int64_t)_ms_bits_f64(${a(0)})`;
+            case "__builtin_i64_to_f64": return `_ms_f64_bits((double)(int64_t)(${a(0)}))`;
+            case "__builtin_u64_to_f64": return `_ms_f64_bits((double)(uint64_t)(${a(0)}))`;
 
             // メモリ
-            case "__builtin_malloc":      return `_ms_malloc(${a(0)})`;
-            case "__builtin_free":        { pre.push(`_ms_free(${a(0)});`); return ""; }
-            case "__builtin_mem_read32":  return `_ms_mem_read32(${a(0)}, ${a(1)})`;
+            case "__builtin_malloc":       return `_ms_malloc(${a(0)})`;
+            case "__builtin_free":         { pre.push(`_ms_free(${a(0)});`); return ""; }
+            case "__builtin_mem_read8":    return `_ms_mem_read8(${a(0)}, ${a(1)})`;
+            case "__builtin_mem_read16":   return `_ms_mem_read16(${a(0)}, ${a(1)})`;
+            case "__builtin_mem_read32":   return `_ms_mem_read32(${a(0)}, ${a(1)})`;
+            case "__builtin_mem_read64":   return `_ms_mem_read64(${a(0)}, ${a(1)})`;
+            case "__builtin_mem_write8":   { pre.push(`_ms_mem_write8(${a(0)}, ${a(1)}, ${a(2)});`);  return ""; }
+            case "__builtin_mem_write16":  { pre.push(`_ms_mem_write16(${a(0)}, ${a(1)}, ${a(2)});`); return ""; }
+            case "__builtin_mem_write64":  { pre.push(`_ms_mem_write64(${a(0)}, ${a(1)}, ${a(2)});`); return ""; }
             case "__builtin_mem_write32": {
                 const v2     = this.flattenExpr(node.args[2], pre, subst);
                 const v2type = applySubst((node.args[2] as any).resolvedType ?? "_m32", subst);
@@ -944,7 +1105,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         return `_tmp${this.tmpCount++}`;
     }
 
-    // _m32 bits フィールドを1つだけ持つラッパー型か判定
+    // bits フィールドを1つだけ持つラッパー型か判定（_m32 / _m64 両対応）
     private hasSimpleBitsField(mozType: string): boolean {
         const base = baseType(mozType);
         const cls  = this.classes.get(base);
@@ -952,7 +1113,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         const privateFields = cls.members.filter(f => f.access === "private");
         return privateFields.length === 1
             && privateFields[0].name === "bits"
-            && privateFields[0].resolvedType === "_m32";
+            && (privateFields[0].resolvedType === "_m32" || privateFields[0].resolvedType === "_m64");
     }
 
     private computeSizeof(mozType: string): number {
@@ -963,10 +1124,13 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         for (const field of cls.members) {
             if (field.access !== "private") continue;
             switch (field.resolvedType) {
+                case "_m8":   total += 1;  break;
+                case "_m16":  total += 2;  break;
                 case "_m32":  total += 4;  break;
                 case "_m64":  total += 8;  break;
                 case "_m128": total += 16; break;
                 case "_m256": total += 32; break;
+                case "_m512": total += 64; break;
             }
         }
         return total > 0 ? total : 4;
