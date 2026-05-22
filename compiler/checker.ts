@@ -77,6 +77,7 @@ const BUILTIN_RET: Record<string, string> = {
     __builtin_f32_to_f64: '_m64', __builtin_f64_to_f32: '_m32',
     __builtin_f64_to_i64: '_m64', __builtin_i64_to_f64: '_m64',
     __builtin_u64_to_f64: '_m64',
+    __builtin_i32_to_f64: '_m64', __builtin_u32_to_f64: '_m64',
     // メモリ
     __builtin_malloc:       '_m32', __builtin_free:        'void',
     __builtin_mem_read8:    '_m32', __builtin_mem_read16:  '_m32',
@@ -91,7 +92,7 @@ const BUILTIN_RET: Record<string, string> = {
     __builtin_sizeof:       '_m32',
     // I/O
     __builtin_stdout_write: 'void', __builtin_stderr_write:'void',
-    __builtin_stdin_read:   '_m32', __builtin_stdin_readline:'void',
+    __builtin_stdin_read:   '_m32', __builtin_stdin_readline:'string',
     __builtin_str_length:   '_m32',
     __builtin_panic:        'void',
     __builtin_if:           '_m32', __builtin_while:       '_m32',

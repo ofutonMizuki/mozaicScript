@@ -281,7 +281,7 @@ export interface AtomicStore {
 }
 export interface AtomicCas {
     type: "AtomicCas";
-    resolvedType: "boolean";
+    resolvedType: "_m32";
     ptr: ASTNode;
     expected: ASTNode;
     desired: ASTNode;
@@ -813,8 +813,15 @@ export class Evaluator {
     }
 
     // 引数を評価してバッファに格納する（アロケーション削減用）
+    // 呼び出し深さ別に事前確保したバッファを再利用することで .map() の都度アロケーションを回避する。
+    // ThreadSpawn / ThreadPoolSubmit のように引数を長期保持する場合は .map() で別コピーを作成すること。
     private evalArgs(nodes: ASTNode[], env: Environment): RuntimeValue[] {
-        return nodes.map(n => this.eval(n, env));
+        const buf = this._argsBufs[this._argsDepth++];
+        const n = nodes.length;
+        buf.length = n;
+        for (let i = 0; i < n; i++) buf[i] = this.eval(nodes[i], env);
+        this._argsDepth--;
+        return buf;
     }
 
     private eval(node: ASTNode, env: Environment): RuntimeValue {

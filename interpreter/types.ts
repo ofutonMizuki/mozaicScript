@@ -261,7 +261,7 @@ export interface AtomicStore {
 
 export interface AtomicCas {
     type: "AtomicCas";
-    resolvedType: "boolean";
+    resolvedType: "_m32";
     ptr: ASTNode;
     expected: ASTNode;
     desired: ASTNode;

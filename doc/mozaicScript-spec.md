@@ -556,7 +556,7 @@ i64  → private let bits: _m64 → 8バイト
 |------|------|
 | `__builtin_atomic_load(ptr: _m32): _m32` | アトミック読み込み |
 | `__builtin_atomic_store(ptr: _m32, val: _m32): void` | アトミック書き込み |
-| `__builtin_atomic_cas(ptr: _m32, expected: _m32, desired: _m32): boolean` | Compare-And-Swap |
+| `__builtin_atomic_cas(ptr: _m32, expected: _m32, desired: _m32): _m32` | Compare-And-Swap（成功=1, 失敗=0） |
 | `__builtin_atomic_fetch_add(ptr: _m32, val: _m32): _m32` | アトミック加算（加算前の値を返す） |
 | `__builtin_atomic_fetch_sub(ptr: _m32, val: _m32): _m32` | アトミック減算（減算前の値を返す） |
 

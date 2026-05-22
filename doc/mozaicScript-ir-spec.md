@@ -372,7 +372,7 @@
 { "type": "CondVarBroadcast", "resolvedType": "void", "condVar": { ... } }
 { "type": "AtomicLoad", "resolvedType": "_m32", "ptr": { ... } }
 { "type": "AtomicStore", "resolvedType": "void", "ptr": { ... }, "value": { ... } }
-{ "type": "AtomicCas", "resolvedType": "boolean", "ptr": { ... }, "expected": { ... }, "desired": { ... } }
+{ "type": "AtomicCas", "resolvedType": "_m32", "ptr": { ... }, "expected": { ... }, "desired": { ... } }
 { "type": "AtomicFetchAdd", "resolvedType": "_m32", "ptr": { ... }, "value": { ... } }
 { "type": "AtomicFetchSub", "resolvedType": "_m32", "ptr": { ... }, "value": { ... } }
 ```
