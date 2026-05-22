@@ -1,41 +1,36 @@
 import { RuntimeValue } from "./values";
 
 export class Environment {
-    private store: Map<string, RuntimeValue>;
+    private store: Record<string, RuntimeValue>;
     private parent: Environment | null;
 
     constructor(parent: Environment | null = null) {
-        this.store = new Map();
+        this.store = Object.create(null); // プロトタイプなし → 純粋なキー/値ストア
         this.parent = parent;
     }
 
     get(name: string): RuntimeValue {
-        if (this.store.has(name)) {
-            return this.store.get(name)!;
-        }
-        if (this.parent !== null) {
-            return this.parent.get(name);
-        }
+        // プロトタイプチェーンなしの hasOwnProperty 相当
+        const v = this.store[name];
+        if (v !== undefined) return v;
+        if (this.parent !== null) return this.parent.get(name);
         throw new Error(`Undefined variable: ${name}`);
     }
 
     define(name: string, value: RuntimeValue): void {
-        if (this.store.has(name)) {
-            throw new Error(`Variable already defined: ${name}`);
-        }
-        this.store.set(name, value);
+        this.store[name] = value;
     }
 
     assign(name: string, value: RuntimeValue): void {
-        if (this.store.has(name)) {
-            this.store.set(name, value);
-            return;
+        let env: Environment = this;
+        while (true) {
+            if (env.store[name] !== undefined) {
+                env.store[name] = value;
+                return;
+            }
+            if (env.parent === null) throw new Error(`Undefined variable: ${name}`);
+            env = env.parent;
         }
-        if (this.parent !== null) {
-            this.parent.assign(name, value);
-            return;
-        }
-        throw new Error(`Undefined variable: ${name}`);
     }
 
     extend(): Environment {

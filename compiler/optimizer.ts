@@ -1,16 +1,18 @@
 // compiler/optimizer.ts — IR レベル最適化パス
 //
-// primitive wrapper クラス（単一 private bits: _mXX フィールドを持つクラス）の
-// メソッド呼び出しをインライン展開する。
+// 最適化レベル:
+//   O0 — 最適化なし（恒等変換）
+//   O1 — メソッドインライン展開 + (new W(x)).field → x 畳み込み
+//   O2 — O1 + Intrinsic 引数ラッパー除去 + 定数畳み込み + 代数的恒等式（デフォルト）
 //
-// 変換例（i32 の場合）:
-//   MethodCall { operator+, recv=X, args=[Y] }
-//   → NewExpr { i32, [Intrinsic { __builtin_i32_add, [X.bits, Y.bits] }] }
-//
-// さらに (new i32(x)).bits → x まで畳み込むため、連鎖的にインライン展開する。
+// primitive wrapper クラス（単一 private _mXX フィールドを持つクラス）の
+// メソッド呼び出しをインライン展開する。フィールド名はハードコードせず
+// registry から動的に取得するため、コアライブラリの実装変更に追従する。
 
 import * as IR from '../interpreter/types';
 import type { Registry } from './checker';
+
+export type OptLevel = 0 | 1 | 2;
 
 const MACHINE_TYPES = new Set(['_m8','_m16','_m32','_m64','_m128','_m256','_m512']);
 
@@ -23,7 +25,7 @@ export class Optimizer {
     // className → WrapperInfo
     private wrappers: Map<string, WrapperInfo> = new Map();
 
-    constructor(private registry: Registry) {
+    constructor(private registry: Registry, private level: OptLevel = 2) {
         this.detectWrappers();
     }
 
@@ -40,6 +42,7 @@ export class Optimizer {
     }
 
     optimize(nodes: IR.ASTNode[]): IR.ASTNode[] {
+        if (this.level === 0) return nodes; // -O0: 恒等変換
         return nodes.map(n => this.optNode(n));
     }
 
@@ -49,12 +52,13 @@ export class Optimizer {
         // 子を先に最適化してから自身を変換する（bottom-up）
         const n = this.optChildren(node);
 
+        // O1+: primitive wrapper メソッドのインライン展開
         if (n.type === 'MethodCall') {
             const inlined = this.tryInline(n as IR.MethodCall);
             if (inlined !== n) return this.optNode(inlined); // 再帰して連鎖展開
         }
 
-        // (new Wrapper(x)).<field> → x （フィールド名は registry から取得）
+        // O1+: (new Wrapper(x)).<field> → x （フィールド名は registry から取得）
         if (n.type === 'MemberAccess') {
             const ma = n as IR.MemberAccess;
             if (ma.receiver.type === 'NewExpr') {
@@ -67,8 +71,8 @@ export class Optimizer {
             }
         }
 
-        // Intrinsic: 引数から primitive wrapper を剥がして定数畳み込み
-        if (n.type === 'Intrinsic') {
+        // O2+: Intrinsic 引数ラッパー除去 + 定数畳み込み + 代数的恒等式
+        if (n.type === 'Intrinsic' && this.level >= 2) {
             const result = this.optIntrinsic(n as IR.Intrinsic);
             if (result !== n) return result;
         }

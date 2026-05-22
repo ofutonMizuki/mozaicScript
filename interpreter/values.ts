@@ -15,7 +15,7 @@ export interface PrimitiveValue {
 export interface ObjectValue {
     kind: "object";
     className: string;
-    fields: Map<string, RuntimeValue>;
+    fields: Record<string, RuntimeValue>; // Map より高速な plain object
     classDef: ClassDecl;
 }
 
@@ -29,4 +29,5 @@ export const primitive = (value: number): PrimitiveValue => ({
     value,
 });
 
-export const voidValue = (): VoidValue => ({ kind: "void" });
+const _VOID: VoidValue = { kind: "void" };
+export const voidValue = (): VoidValue => _VOID;

@@ -452,6 +452,8 @@ i64  → private let bits: _m64 → 8バイト
 | `__builtin_f64_to_i64(a: _m64): _m64` | f64 → i64（切り捨て） |
 | `__builtin_i64_to_f64(a: _m64): _m64` | i64 → f64 |
 | `__builtin_u64_to_f64(a: _m64): _m64` | u64 → f64 |
+| `__builtin_i32_to_f64(a: _m32): _m64` | i32 → f64（符号拡張後変換） |
+| `__builtin_u32_to_f64(a: _m32): _m64` | u32 → f64（ゼロ拡張後変換） |
 
 ### 9.8 整数ビット操作命令
 

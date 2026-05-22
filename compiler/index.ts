@@ -1,5 +1,10 @@
 // compiler/index.ts — mozaicScript コンパイラ CLI
-// 使用法: ts-node compiler/index.ts <entry.moz>
+// 使用法: ts-node compiler/index.ts [-O0|-O1|-O2] <entry.moz>
+//
+// オプション:
+//   -O0  最適化なし（デバッグ用。チェッカー出力の IR をそのまま出力）
+//   -O1  メソッドインライン展開のみ
+//   -O2  全最適化（デフォルト。定数畳み込み・代数的恒等式を含む）
 //
 // エントリーファイルとその全依存ファイルを解析・型チェックして
 // 各ファイルの <filename>.ast.json を生成する
@@ -9,16 +14,29 @@ import * as path from 'path';
 import { lex, LexError } from './lexer';
 import { parse, ParseError } from './parser';
 import { Checker, CheckError, emptyRegistry } from './checker';
-import { Optimizer } from './optimizer';
+import { Optimizer, OptLevel } from './optimizer';
 import { MozaicScriptAST } from '../interpreter/types';
 
-const args = process.argv.slice(2);
-if (args.length === 0) {
-    console.error('Usage: ts-node compiler/index.ts <entry.moz>');
+const rawArgs = process.argv.slice(2);
+
+// ── オプション解析 ────────────────────────────────────────────────────────────
+
+let optLevel: OptLevel = 2; // デフォルト -O2
+const fileArgs: string[] = [];
+
+for (const arg of rawArgs) {
+    if      (arg === '-O0') optLevel = 0;
+    else if (arg === '-O1') optLevel = 1;
+    else if (arg === '-O2') optLevel = 2;
+    else                    fileArgs.push(arg);
+}
+
+if (fileArgs.length === 0) {
+    console.error('Usage: ts-node compiler/index.ts [-O0|-O1|-O2] <entry.moz>');
     process.exit(1);
 }
 
-const entryPath = path.resolve(args[0]);
+const entryPath = path.resolve(fileArgs[0]);
 
 // ── インポートグラフ解決 ──────────────────────────────────────────────────────
 
@@ -61,7 +79,7 @@ function readSource(filePath: string): string {
 
 try {
     collectDeps(entryPath, null);
-} catch (e) {
+} catch (e: unknown) {
     if (e instanceof LexError || e instanceof ParseError) {
         console.error(e.message);
         process.exit(1);
@@ -80,13 +98,14 @@ for (const { filePath } of order) {
         const checker = new Checker(registry);
         const nodes  = checker.check(pfile);
 
-        const optimizer = new Optimizer(registry);
+        const optimizer = new Optimizer(registry, optLevel);
         const optimized = optimizer.optimize(nodes);
 
         const ast: MozaicScriptAST = { mozaicScript: '0.2.3', nodes: optimized };
         const outPath = filePath + '.ast.json';
         fs.writeFileSync(outPath, JSON.stringify(ast, null, 2), 'utf-8');
-        console.log(`  ✓  ${path.relative(process.cwd(), outPath)}`);
+        const optTag = optLevel === 2 ? '' : ` [-O${optLevel}]`;
+        console.log(`  ✓  ${path.relative(process.cwd(), outPath)}${optTag}`);
     } catch (e) {
         if (e instanceof LexError || e instanceof ParseError || e instanceof CheckError) {
             console.error(e.message);

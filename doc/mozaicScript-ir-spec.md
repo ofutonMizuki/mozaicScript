@@ -18,7 +18,7 @@
 
 ```json
 {
-    "mozaicScript": "0.2.2",
+    "mozaicScript": "0.2.3",
     "nodes": [...]
 }
 ```
@@ -430,7 +430,7 @@ public function add(a: i32, b: i32): i32 {
 
 ```json
 {
-    "mozaicScript": "0.2.2",
+    "mozaicScript": "0.2.3",
     "nodes": [
         {
             "type": "ImportDecl",

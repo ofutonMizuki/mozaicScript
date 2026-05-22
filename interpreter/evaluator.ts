@@ -3,26 +3,26 @@ import * as nodePath from "path";
 import { ASTNode, ClassDecl, FunctionDecl, MozaicScriptAST } from "./types";
 import { RuntimeValue, ObjectValue, primitive, voidValue } from "./values";
 import { Environment } from "./environment";
-import { builtins, PanicError, HeapManager, ThreadManager } from "./builtins";
-
-class ReturnSignal {
-    constructor(public value: RuntimeValue) {}
-}
-
-class BreakSignal {}
+import { builtins, HeapManager, ThreadManager } from "./builtins";
 
 export class Evaluator {
-    private baseDir: string;
-    private loadedFiles: Set<string> = new Set();    // 読み込み完了済み
-    private loadingFiles: Set<string> = new Set();   // 現在読み込み中（循環検出）
+    private loadedFiles: Set<string> = new Set();
+    private loadingFiles: Set<string> = new Set();
     private classes: Map<string, ClassDecl> = new Map();
     private functions: Map<string, FunctionDecl> = new Map();
     private globalEnv: Environment = new Environment();
-    private currentFileExt: string = ".moc";         // 現在実行中のファイル拡張子
+    private currentFileExt: string = ".moc";
 
-    constructor(baseDir: string) {
-        this.baseDir = baseDir;
-    }
+    // Control-flow signals (replace throw/catch for return and break)
+    private _hasRet   = false;
+    private _retVal: RuntimeValue = voidValue();
+    private _hasBreak = false;
+
+    // Pre-allocated args buffers indexed by call depth (user request: 配列の確保を事前に)
+    private readonly _argsBufs: RuntimeValue[][] = Array.from({ length: 16 }, () => []);
+    private _argsDepth = 0;
+
+    constructor(_baseDir: string) {}
 
     run(entryPath: string): void {
         this.loadAST(entryPath, null);
@@ -32,10 +32,7 @@ export class Evaluator {
     }
 
     private loadAST(filePath: string, namespace: string | null): void {
-        // 読み込み済みなら再処理しない（shared import は正常）
         if (this.loadedFiles.has(filePath)) return;
-
-        // 現在処理中なら循環インポート
         if (this.loadingFiles.has(filePath)) {
             throw new Error(`Circular import detected: ${filePath}`);
         }
@@ -45,11 +42,9 @@ export class Evaluator {
         const json = fs.readFileSync(astPath, "utf-8");
         const ast: MozaicScriptAST = JSON.parse(json);
 
-        // ファイル拡張子を判定（mocp public アクセス制御用）
         const basename = nodePath.basename(filePath);
         const fileExt = basename.endsWith(".moc") ? ".moc" : ".moz";
 
-        // ImportDecl を先に再帰処理
         for (const node of ast.nodes) {
             if (node.type === "ImportDecl") {
                 const fileDir = nodePath.dirname(filePath);
@@ -58,11 +53,9 @@ export class Evaluator {
             }
         }
 
-        // クラス・関数を登録
         for (const node of ast.nodes) {
             if (node.type === "ClassDecl") {
                 const key = namespace ? `${namespace}.${node.name}` : node.name;
-                // クラスの全メソッドにソースファイル拡張子を付与
                 for (const method of node.methods) {
                     (method as any)._fileExt = fileExt;
                 }
@@ -78,7 +71,16 @@ export class Evaluator {
         this.loadingFiles.delete(filePath);
     }
 
-    // ノードの評価
+    // Evaluate args into a reusable depth-keyed buffer (avoids .map() allocation per call)
+    private evalArgs(nodes: ASTNode[], env: Environment): RuntimeValue[] {
+        const buf = this._argsBufs[this._argsDepth++];
+        const n = nodes.length;
+        buf.length = n;
+        for (let i = 0; i < n; i++) buf[i] = this.eval(nodes[i], env);
+        this._argsDepth--;
+        return buf;
+    }
+
     private eval(node: ASTNode, env: Environment): RuntimeValue {
         switch (node.type) {
             case "VarDecl": {
@@ -93,7 +95,7 @@ export class Evaluator {
                     env.assign(node.target.name, value);
                 } else if (node.target.type === "MemberAccess") {
                     const receiver = this.eval(node.target.receiver, env) as ObjectValue;
-                    receiver.fields.set(node.target.member, value);
+                    receiver.fields[node.target.member] = value;
                 }
                 return voidValue();
             }
@@ -104,7 +106,7 @@ export class Evaluator {
 
             case "MemberAccess": {
                 const receiver = this.eval(node.receiver, env) as ObjectValue;
-                const field = receiver.fields.get(node.member);
+                const field = receiver.fields[node.member];
                 if (field === undefined) {
                     throw new Error(`Field not found: ${node.member} on ${receiver.className}`);
                 }
@@ -143,16 +145,19 @@ export class Evaluator {
             }
 
             case "ReturnStmt": {
-                const value = node.value ? this.eval(node.value, env) : voidValue();
-                throw new ReturnSignal(value);
+                this._retVal = node.value ? this.eval(node.value, env) : voidValue();
+                this._hasRet = true;
+                return voidValue();
             }
 
             case "BreakStmt": {
-                throw new BreakSignal();
+                this._hasBreak = true;
+                return voidValue();
             }
 
             // ── マルチスレッドノード（シングルスレッドシミュレーション） ──────────
             case "ThreadSpawn": {
+                // args stored long-term → must copy, not reuse buffer
                 const args = node.args.map((a: ASTNode) => this.eval(a, env));
                 const id = ThreadManager.enqueue(node.fnName, args);
                 return primitive(id);
@@ -171,6 +176,7 @@ export class Evaluator {
 
             case "ThreadPoolSubmit": {
                 const poolId = (this.eval(node.pool, env) as any).value as number;
+                // args stored long-term → must copy
                 const args = node.args.map((a: ASTNode) => this.eval(a, env));
                 ThreadManager.submitToPool(poolId, node.fnName, args);
                 return voidValue();
@@ -242,87 +248,65 @@ export class Evaluator {
         }
     }
 
-    // NewExpr の評価
     private evalNewExpr(node: any, env: Environment): RuntimeValue {
-        // 文字列リテラル展開（elements フィールドが存在する場合）
         if (node.elements !== undefined) {
             const classDef = this.classes.get("Array");
             if (!classDef) throw new Error("Unknown class: Array (core library not loaded)");
             const lenClassDef = this.classes.get("i32");
             if (!lenClassDef) throw new Error("Unknown class: i32 (core library not loaded)");
 
-            const instance: ObjectValue = {
-                kind: "object",
-                className: node.resolvedType,
-                fields: new Map(),
-                classDef,
-            };
-            // フィールドを primitive(0) で初期化
-            for (const field of classDef.members) {
-                instance.fields.set(field.name, primitive(0));
-            }
+            const fields: Record<string, RuntimeValue> = Object.create(null);
+            for (const field of classDef.members) fields[field.name] = primitive(0);
 
-            // length フィールドを i32 ObjectValue として設定
+            const lenFields: Record<string, RuntimeValue> = Object.create(null);
+            lenFields["bits"] = primitive(node.elements.length);
             const lenInstance: ObjectValue = {
-                kind: "object",
-                className: "i32",
-                fields: new Map([["bits", primitive(node.elements.length)]]),
-                classDef: lenClassDef,
+                kind: "object", className: "i32", fields: lenFields, classDef: lenClassDef,
             };
-            instance.fields.set("length", lenInstance);
+            fields["length"] = lenInstance;
 
-            // 各文字をヒープに書き込む
             if (node.elements.length > 0) {
                 const addr = HeapManager.alloc(node.elements.length * 4);
-                instance.fields.set("ptr", primitive(addr));
+                fields["ptr"] = primitive(addr);
                 node.elements.forEach((e: any, i: number) => {
                     HeapManager.write(addr + i * 4, primitive(e.value));
                 });
             } else {
-                instance.fields.set("ptr", primitive(0));
+                fields["ptr"] = primitive(0);
             }
 
-            return instance;
+            return { kind: "object", className: node.resolvedType, fields, classDef };
         }
 
-        // 通常のクラスインスタンス化
         const className = node.resolvedType.split("<")[0];
         const classDef = this.classes.get(className);
         if (!classDef) throw new Error(`Unknown class: ${node.resolvedType}`);
 
+        const fields: Record<string, RuntimeValue> = Object.create(null);
+        for (const field of classDef.members) fields[field.name] = primitive(0);
+
         const instance: ObjectValue = {
-            kind: "object",
-            className: node.resolvedType,
-            fields: new Map(),
-            classDef,
+            kind: "object", className: node.resolvedType, fields, classDef,
         };
 
-        // フィールドを primitive(0) で初期化
-        for (const field of classDef.members) {
-            instance.fields.set(field.name, primitive(0));
-        }
-
-        // コンストラクタを呼び出し
         const constructor = classDef.methods.find(m => m.name === "constructor");
         if (constructor) {
-            const args = node.args.map((a: ASTNode) => this.eval(a, env));
+            const args = this.evalArgs(node.args, env);
             this.callFunction(constructor, args, env, instance);
         }
 
         return instance;
     }
 
-    // MethodCall の評価
     private evalMethodCall(node: any, env: Environment): RuntimeValue {
         const receiver = this.eval(node.receiver, env) as ObjectValue;
-        const args = node.args.map((a: ASTNode) => this.eval(a, env));
+        const args = this.evalArgs(node.args, env);
 
         const method = receiver.classDef.methods.find(m => m.name === node.method);
         if (!method) {
             throw new Error(`Method not found: ${node.method} on ${receiver.className}`);
         }
 
-        // mocp public アクセス制御
         if (method.access === "mocp public" && this.currentFileExt === ".moz") {
             throw new Error(
                 `Cannot access mocp public member '${node.method}' from .moz file`
@@ -332,33 +316,29 @@ export class Evaluator {
         return this.callFunction(method, args, env, receiver);
     }
 
-    // Intrinsic の評価
     private evalIntrinsic(node: any, env: Environment): RuntimeValue {
-        // __builtin_if / __builtin_while: boolean の bits フィールドを抽出して返す
         if (node.name === "__builtin_if" || node.name === "__builtin_while") {
             const cond = this.eval(node.args[0], env) as any;
             const bits = cond.kind === "object"
-                ? (cond.fields.get("bits") as any).value
+                ? (cond.fields["bits"] as any).value
                 : cond.value;
             return primitive(bits !== 0 ? 1 : 0);
         }
 
-        // __builtin_sizeof: targetType からクラスの private フィールドサイズを計算
         if (node.name === "__builtin_sizeof") {
             return this.evalSizeof(node.targetType ?? "i32");
         }
 
-        const fn = builtins.get(node.name);
+        const fn = builtins[node.name];
         if (!fn) throw new Error(`Unknown builtin: ${node.name}`);
-        const evaledArgs = node.args.map((a: ASTNode) => this.eval(a, env));
+        const evaledArgs = this.evalArgs(node.args, env);
         return fn(evaledArgs);
     }
 
-    // __builtin_sizeof の実装
     private evalSizeof(targetType: string): RuntimeValue {
         const className = targetType.split("<")[0];
         const classDef = this.classes.get(className);
-        if (!classDef) return primitive(4); // フォールバック
+        if (!classDef) return primitive(4);
 
         let totalBytes = 0;
         for (const field of classDef.members) {
@@ -377,93 +357,79 @@ export class Evaluator {
         return primitive(totalBytes > 0 ? totalBytes : 4);
     }
 
-    // IfStmt の評価
     private evalIfStmt(node: any, env: Environment): void {
         const cond = this.eval(node.cond, env) as any;
         if (cond.value !== 0) {
-            const bodyEnv = env.extend();
-            this.execBody(node.body, bodyEnv);
+            this.execBody(node.body, env.extend());
         } else if (node.else) {
             if (node.else.type === "IfStmt") {
                 this.evalIfStmt(node.else, env);
             } else {
-                const elseEnv = env.extend();
-                this.execBody(node.else.body, elseEnv);
+                this.execBody(node.else.body, env.extend());
             }
         }
     }
 
-    // WhileStmt の評価
     private evalWhileStmt(node: any, env: Environment): void {
         while (true) {
             const cond = this.eval(node.cond, env) as any;
             if (cond.value === 0) break;
-            try {
-                const bodyEnv = env.extend();
-                this.execBody(node.body, bodyEnv);
-            } catch (e) {
-                if (e instanceof BreakSignal) break;
-                throw e;
-            }
+            this.execBody(node.body, env.extend());
+            if (this._hasBreak) { this._hasBreak = false; break; }
+            if (this._hasRet) return;
         }
     }
 
-    // ForStmt の評価
     private evalForStmt(node: any, env: Environment): void {
         const forEnv = env.extend();
         this.eval(node.init, forEnv);
         while (true) {
             const cond = this.eval(node.cond, forEnv) as any;
             if (cond.value === 0) break;
-            try {
-                const bodyEnv = forEnv.extend();
-                this.execBody(node.body, bodyEnv);
-            } catch (e) {
-                if (e instanceof BreakSignal) break;
-                throw e;
-            }
+            this.execBody(node.body, forEnv.extend());
+            if (this._hasBreak) { this._hasBreak = false; break; }
+            if (this._hasRet) return;
             this.eval(node.update, forEnv);
         }
     }
 
-    // 関数・メソッドの呼び出し
     private callFunction(
         fn: FunctionDecl,
         args: RuntimeValue[],
         env: Environment,
         thisVal?: ObjectValue
     ): RuntimeValue {
-        // ソースファイル拡張子を切り替え（mocp public アクセス制御用）
         const prevFileExt = this.currentFileExt;
         const fnFileExt = (fn as any)._fileExt;
         if (fnFileExt) this.currentFileExt = fnFileExt;
 
         const fnEnv = env.extend();
         if (thisVal) fnEnv.define("this", thisVal);
-        fn.params.forEach((p, i) => fnEnv.define(p.name, args[i]));
+        const nParams = fn.params.length;
+        for (let i = 0; i < nParams; i++) fnEnv.define(fn.params[i].name, args[i]);
 
-        try {
-            this.execBody(fn.body, fnEnv);
-        } catch (e) {
-            this.currentFileExt = prevFileExt;
-            if (e instanceof ReturnSignal) return e.value;
-            throw e;
-        }
+        this.execBody(fn.body, fnEnv);
         this.currentFileExt = prevFileExt;
+
+        if (this._hasRet) {
+            this._hasRet = false;
+            const val = this._retVal;
+            this._retVal = voidValue();
+            return val;
+        }
         return voidValue();
     }
 
-    // トップレベル関数を名前で呼び出す（スレッドシミュレーション用）
     private callTopFunction(fnName: string, args: RuntimeValue[]): void {
         const fn = this.functions.get(fnName);
         if (!fn) throw new Error(`Thread function not found: ${fnName}`);
         this.callFunction(fn, args, this.globalEnv);
     }
 
-    // ボディの実行
     private execBody(body: ASTNode[], env: Environment): void {
         for (const node of body) {
             this.eval(node, env);
+            if (this._hasRet || this._hasBreak) return;
         }
     }
 }

@@ -328,7 +328,7 @@ export interface PrimitiveValue {
 export interface ObjectValue {
     kind: "object";
     className: string;              // クラス名（例："i32", "Array"）
-    fields: Map<string, RuntimeValue>; // フィールド名 → 値
+    fields: Record<string, RuntimeValue>; // フィールド名 → 値（Map より高速な plain object）
     classDef: ClassDecl;            // クラス定義への参照
 }
 
@@ -343,7 +343,9 @@ export const primitive = (value: number): PrimitiveValue => ({
     value,
 });
 
-export const voidValue = (): VoidValue => ({ kind: "void" });
+// voidValue はシングルトンで返す（毎回生成しない）
+const _VOID: VoidValue = { kind: "void" };
+export const voidValue = (): VoidValue => _VOID;
 ```
 
 ---
@@ -356,44 +358,39 @@ export const voidValue = (): VoidValue => ({ kind: "void" });
 import { RuntimeValue } from "./values";
 
 export class Environment {
-    private store: Map<string, RuntimeValue>;
+    private store: Record<string, RuntimeValue>;  // Object.create(null) でプロトタイプなし
     private parent: Environment | null;
 
     constructor(parent: Environment | null = null) {
-        this.store = new Map();
+        this.store = Object.create(null); // プロトタイプなし → 純粋なキー/値ストア
         this.parent = parent;
     }
 
     // 変数の取得（親スコープを再帰的に探索）
     get(name: string): RuntimeValue {
-        if (this.store.has(name)) {
-            return this.store.get(name)!;
-        }
-        if (this.parent !== null) {
-            return this.parent.get(name);
-        }
+        const v = this.store[name];
+        if (v !== undefined) return v;
+        if (this.parent !== null) return this.parent.get(name);
         throw new Error(`Undefined variable: ${name}`);
     }
 
     // 変数の定義（現在のスコープに追加）
+    // 重複チェックはフロントエンドの責務（エンジン側では行わない）
     define(name: string, value: RuntimeValue): void {
-        if (this.store.has(name)) {
-            throw new Error(`Variable already defined: ${name}`);
-        }
-        this.store.set(name, value);
+        this.store[name] = value;
     }
 
-    // 変数の再代入（定義済みのスコープを探して更新）
+    // 変数の再代入（定義済みのスコープを反復探索して更新）
     assign(name: string, value: RuntimeValue): void {
-        if (this.store.has(name)) {
-            this.store.set(name, value);
-            return;
+        let env: Environment = this;
+        while (true) {
+            if (env.store[name] !== undefined) {
+                env.store[name] = value;
+                return;
+            }
+            if (env.parent === null) throw new Error(`Undefined variable: ${name}`);
+            env = env.parent;
         }
-        if (this.parent !== null) {
-            this.parent.assign(name, value);
-            return;
-        }
-        throw new Error(`Undefined variable: ${name}`);
     }
 
     // 子スコープを生成
@@ -410,165 +407,252 @@ export class Environment {
 `__builtin_*` 命令をTypeScriptの関数として実装する。
 
 ```typescript
-import { RuntimeValue, primitive, voidValue, ObjectValue } from "./values";
+import { RuntimeValue, primitive, voidValue } from "./values";
 
 type BuiltinFn = (args: RuntimeValue[]) => RuntimeValue;
 
-// __builtin_* 命令のマップ
-export const builtins: Map<string, BuiltinFn> = new Map([
+// i64/u64 の演算は BigInt で行い、number で保持する（インタープリタ用近似）
+function toI64(n: number): bigint { return BigInt.asIntN(64, BigInt(Math.trunc(n))); }
+function toU64(n: number): bigint { return BigInt.asUintN(64, BigInt(Math.trunc(n))); }
+function n64(b: bigint): number   { return Number(b); }
+function v(x: RuntimeValue): number { return (x as any).value; }
 
-    // 数値演算
-    ["__builtin_i32_add", ([a, b]) => primitive((a as any).value + (b as any).value | 0)],
-    ["__builtin_i32_sub", ([a, b]) => primitive((a as any).value - (b as any).value | 0)],
-    ["__builtin_i32_mul", ([a, b]) => primitive(Math.imul((a as any).value, (b as any).value))],
-    ["__builtin_i32_div", ([a, b]) => primitive((a as any).value / (b as any).value | 0)],
-    ["__builtin_i32_mod", ([a, b]) => primitive((a as any).value % (b as any).value | 0)],
-    ["__builtin_i32_eq",  ([a, b]) => primitive((a as any).value === (b as any).value ? 1 : 0)],
-    ["__builtin_i32_lt",  ([a, b]) => primitive((a as any).value < (b as any).value ? 1 : 0)],
-    ["__builtin_i32_gt",  ([a, b]) => primitive((a as any).value > (b as any).value ? 1 : 0)],
-    ["__builtin_i32_neg", ([a])    => primitive(-(a as any).value | 0)],
+// __builtin_* 命令のマップ（Map より高速な plain object）
+export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
 
-    ["__builtin_u32_add", ([a, b]) => primitive(((a as any).value + (b as any).value) >>> 0)],
-    ["__builtin_u32_sub", ([a, b]) => primitive(((a as any).value - (b as any).value) >>> 0)],
-    ["__builtin_u32_mul", ([a, b]) => primitive(Math.imul((a as any).value, (b as any).value) >>> 0)],
-    ["__builtin_u32_div", ([a, b]) => primitive(((a as any).value / (b as any).value) >>> 0)],
-    ["__builtin_u32_mod", ([a, b]) => primitive(((a as any).value % (b as any).value) >>> 0)],
-    ["__builtin_u32_eq",  ([a, b]) => primitive((a as any).value === (b as any).value ? 1 : 0)],
-    ["__builtin_u32_lt",  ([a, b]) => primitive(((a as any).value >>> 0) < ((b as any).value >>> 0) ? 1 : 0)],
-    ["__builtin_u32_gt",  ([a, b]) => primitive(((a as any).value >>> 0) > ((b as any).value >>> 0) ? 1 : 0)],
+    // ── i32 算術 ─────────────────────────────────────────────────────────────
+    ["__builtin_i32_add", ([a, b]) => primitive((v(a) + v(b)) | 0)],
+    ["__builtin_i32_sub", ([a, b]) => primitive((v(a) - v(b)) | 0)],
+    ["__builtin_i32_mul", ([a, b]) => primitive(Math.imul(v(a), v(b)))],
+    ["__builtin_i32_div", ([a, b]) => primitive((v(a) / v(b)) | 0)],
+    ["__builtin_i32_mod", ([a, b]) => primitive((v(a) % v(b)) | 0)],
+    ["__builtin_i32_eq",  ([a, b]) => primitive(v(a) === v(b) ? 1 : 0)],
+    ["__builtin_i32_lt",  ([a, b]) => primitive(v(a) < v(b) ? 1 : 0)],
+    ["__builtin_i32_gt",  ([a, b]) => primitive(v(a) > v(b) ? 1 : 0)],
+    ["__builtin_i32_neg", ([a])    => primitive((-v(a)) | 0)],
 
-    ["__builtin_f32_add", ([a, b]) => primitive(Math.fround((a as any).value + (b as any).value))],
-    ["__builtin_f32_sub", ([a, b]) => primitive(Math.fround((a as any).value - (b as any).value))],
-    ["__builtin_f32_mul", ([a, b]) => primitive(Math.fround((a as any).value * (b as any).value))],
-    ["__builtin_f32_div", ([a, b]) => primitive(Math.fround((a as any).value / (b as any).value))],
-    ["__builtin_f32_mod", ([a, b]) => primitive(Math.fround((a as any).value % (b as any).value))],
-    ["__builtin_f32_eq",  ([a, b]) => primitive((a as any).value === (b as any).value ? 1 : 0)],
-    ["__builtin_f32_lt",  ([a, b]) => primitive((a as any).value < (b as any).value ? 1 : 0)],
-    ["__builtin_f32_gt",  ([a, b]) => primitive((a as any).value > (b as any).value ? 1 : 0)],
-    ["__builtin_f32_neg", ([a])    => primitive(Math.fround(-(a as any).value))],
+    // ── u32 算術 ─────────────────────────────────────────────────────────────
+    ["__builtin_u32_add", ([a, b]) => primitive((v(a) + v(b)) >>> 0)],
+    ["__builtin_u32_sub", ([a, b]) => primitive((v(a) - v(b)) >>> 0)],
+    ["__builtin_u32_mul", ([a, b]) => primitive(Math.imul(v(a), v(b)) >>> 0)],
+    ["__builtin_u32_div", ([a, b]) => primitive((v(a) >>> 0) / (v(b) >>> 0) >>> 0)],
+    ["__builtin_u32_mod", ([a, b]) => primitive((v(a) >>> 0) % (v(b) >>> 0) >>> 0)],
+    ["__builtin_u32_eq",  ([a, b]) => primitive(v(a) === v(b) ? 1 : 0)],
+    ["__builtin_u32_lt",  ([a, b]) => primitive((v(a) >>> 0) < (v(b) >>> 0) ? 1 : 0)],
+    ["__builtin_u32_gt",  ([a, b]) => primitive((v(a) >>> 0) > (v(b) >>> 0) ? 1 : 0)],
 
-    // 論理演算
-    ["__builtin_i32_or",  ([a, b]) => primitive((a as any).value | (b as any).value)],
-    ["__builtin_i32_and", ([a, b]) => primitive((a as any).value & (b as any).value)],
-    ["__builtin_i32_not", ([a])    => primitive((a as any).value === 0 ? 1 : 0)],
+    // ── f32 算術 ─────────────────────────────────────────────────────────────
+    ["__builtin_f32_add", ([a, b]) => primitive(Math.fround(v(a) + v(b)))],
+    ["__builtin_f32_sub", ([a, b]) => primitive(Math.fround(v(a) - v(b)))],
+    ["__builtin_f32_mul", ([a, b]) => primitive(Math.fround(v(a) * v(b)))],
+    ["__builtin_f32_div", ([a, b]) => primitive(Math.fround(v(a) / v(b)))],
+    ["__builtin_f32_mod", ([a, b]) => primitive(Math.fround(v(a) % v(b)))],
+    ["__builtin_f32_eq",  ([a, b]) => primitive(v(a) === v(b) ? 1 : 0)],
+    ["__builtin_f32_lt",  ([a, b]) => primitive(v(a) < v(b) ? 1 : 0)],
+    ["__builtin_f32_gt",  ([a, b]) => primitive(v(a) > v(b) ? 1 : 0)],
+    ["__builtin_f32_neg", ([a])    => primitive(Math.fround(-v(a)))],
 
-    // 型変換
-    ["__builtin_i32_to_f32", ([a]) => primitive(Math.fround((a as any).value))],
-    ["__builtin_i32_to_u32", ([a]) => primitive((a as any).value >>> 0)],
-    ["__builtin_u32_to_f32", ([a]) => primitive(Math.fround((a as any).value >>> 0))],
-    ["__builtin_u32_to_i32", ([a]) => primitive((a as any).value | 0)],
-    ["__builtin_f32_to_i32", ([a]) => primitive(Math.trunc((a as any).value) | 0)],
-    ["__builtin_f32_to_u32", ([a]) => primitive(Math.trunc((a as any).value) >>> 0)],
+    // ── i64 算術（BigInt で演算、number で保持） ──────────────────────────────
+    ["__builtin_i64_add", ([a, b]) => primitive(n64(toI64(v(a)) + toI64(v(b))))],
+    ["__builtin_i64_sub", ([a, b]) => primitive(n64(toI64(v(a)) - toI64(v(b))))],
+    ["__builtin_i64_mul", ([a, b]) => primitive(n64(toI64(v(a)) * toI64(v(b))))],
+    ["__builtin_i64_div", ([a, b]) => primitive(n64(toI64(v(a)) / toI64(v(b))))],
+    ["__builtin_i64_mod", ([a, b]) => primitive(n64(toI64(v(a)) % toI64(v(b))))],
+    ["__builtin_i64_eq",  ([a, b]) => primitive(toI64(v(a)) === toI64(v(b)) ? 1 : 0)],
+    ["__builtin_i64_lt",  ([a, b]) => primitive(toI64(v(a)) < toI64(v(b)) ? 1 : 0)],
+    ["__builtin_i64_gt",  ([a, b]) => primitive(toI64(v(a)) > toI64(v(b)) ? 1 : 0)],
+    ["__builtin_i64_neg", ([a])    => primitive(n64(-toI64(v(a))))],
 
-    // メモリ管理（ヒープをJavaScriptのMapで模倣）
-    ["__builtin_malloc", ([size]) => {
-        const addr = HeapManager.alloc((size as any).value);
-        return primitive(addr);
+    // ── u64 算術 ─────────────────────────────────────────────────────────────
+    ["__builtin_u64_add", ([a, b]) => primitive(n64(toU64(v(a)) + toU64(v(b))))],
+    ["__builtin_u64_sub", ([a, b]) => primitive(n64(toU64(v(a)) - toU64(v(b))))],
+    ["__builtin_u64_mul", ([a, b]) => primitive(n64(toU64(v(a)) * toU64(v(b))))],
+    ["__builtin_u64_div", ([a, b]) => primitive(n64(toU64(v(a)) / toU64(v(b))))],
+    ["__builtin_u64_mod", ([a, b]) => primitive(n64(toU64(v(a)) % toU64(v(b))))],
+    ["__builtin_u64_eq",  ([a, b]) => primitive(toU64(v(a)) === toU64(v(b)) ? 1 : 0)],
+    ["__builtin_u64_lt",  ([a, b]) => primitive(toU64(v(a)) < toU64(v(b)) ? 1 : 0)],
+    ["__builtin_u64_gt",  ([a, b]) => primitive(toU64(v(a)) > toU64(v(b)) ? 1 : 0)],
+
+    // ── f64 算術（JS number は IEEE 754 倍精度なのでそのまま） ────────────────
+    ["__builtin_f64_add", ([a, b]) => primitive(v(a) + v(b))],
+    ["__builtin_f64_sub", ([a, b]) => primitive(v(a) - v(b))],
+    ["__builtin_f64_mul", ([a, b]) => primitive(v(a) * v(b))],
+    ["__builtin_f64_div", ([a, b]) => primitive(v(a) / v(b))],
+    ["__builtin_f64_mod", ([a, b]) => primitive(v(a) % v(b))],
+    ["__builtin_f64_eq",  ([a, b]) => primitive(v(a) === v(b) ? 1 : 0)],
+    ["__builtin_f64_lt",  ([a, b]) => primitive(v(a) < v(b) ? 1 : 0)],
+    ["__builtin_f64_gt",  ([a, b]) => primitive(v(a) > v(b) ? 1 : 0)],
+    ["__builtin_f64_neg", ([a])    => primitive(-v(a))],
+
+    // ── 論理演算 ─────────────────────────────────────────────────────────────
+    ["__builtin_i32_or",  ([a, b]) => primitive(v(a) | v(b))],
+    ["__builtin_i32_and", ([a, b]) => primitive(v(a) & v(b))],
+    ["__builtin_i32_not", ([a])    => primitive(v(a) === 0 ? 1 : 0)],
+    ["__builtin_u32_or",  ([a, b]) => primitive((v(a) | v(b)) >>> 0)],
+    ["__builtin_u32_and", ([a, b]) => primitive((v(a) & v(b)) >>> 0)],
+    ["__builtin_i64_or",  ([a, b]) => primitive(n64(toI64(v(a)) | toI64(v(b))))],
+    ["__builtin_i64_and", ([a, b]) => primitive(n64(toI64(v(a)) & toI64(v(b))))],
+    ["__builtin_i64_not", ([a])    => primitive(v(a) === 0 ? 1 : 0)],
+    ["__builtin_u64_or",  ([a, b]) => primitive(n64(toU64(v(a)) | toU64(v(b))))],
+    ["__builtin_u64_and", ([a, b]) => primitive(n64(toU64(v(a)) & toU64(v(b))))],
+    ["__builtin_u64_not", ([a])    => primitive(v(a) === 0 ? 1 : 0)],
+
+    // ── ビットシフト ─────────────────────────────────────────────────────────
+    ["__builtin_i32_shl", ([a, b]) => primitive(v(a) << v(b))],
+    ["__builtin_i32_shr", ([a, b]) => primitive(v(a) >> v(b))],
+    ["__builtin_u32_shl", ([a, b]) => primitive((v(a) >>> 0) << v(b))],
+    ["__builtin_u32_shr", ([a, b]) => primitive((v(a) >>> 0) >>> v(b))],
+    ["__builtin_i64_shl", ([a, b]) => primitive(n64(toI64(v(a)) << BigInt(v(b) & 63)))],
+    ["__builtin_i64_shr", ([a, b]) => primitive(n64(toI64(v(a)) >> BigInt(v(b) & 63)))],
+    ["__builtin_u64_shl", ([a, b]) => primitive(n64(toU64(v(a)) << BigInt(v(b) & 63)))],
+    ["__builtin_u64_shr", ([a, b]) => primitive(n64(toU64(v(a)) >> BigInt(v(b) & 63)))],
+
+    // ── 浮動小数点演算（f32/f64） ─────────────────────────────────────────────
+    ["__builtin_f32_abs",     ([a]) => primitive(Math.fround(Math.abs(v(a))))],
+    ["__builtin_f32_sqrt",    ([a]) => primitive(Math.fround(Math.sqrt(v(a))))],
+    ["__builtin_f32_floor",   ([a]) => primitive(Math.fround(Math.floor(v(a))))],
+    ["__builtin_f32_ceil",    ([a]) => primitive(Math.fround(Math.ceil(v(a))))],
+    ["__builtin_f32_trunc",   ([a]) => primitive(Math.fround(Math.trunc(v(a))))],
+    ["__builtin_f32_nearest", ([a]) => primitive(Math.fround(Math.round(v(a))))],
+    ["__builtin_f32_min",     ([a, b]) => primitive(Math.fround(Math.min(v(a), v(b))))],
+    ["__builtin_f32_max",     ([a, b]) => primitive(Math.fround(Math.max(v(a), v(b))))],
+    ["__builtin_f64_abs",     ([a]) => primitive(Math.abs(v(a)))],
+    ["__builtin_f64_sqrt",    ([a]) => primitive(Math.sqrt(v(a)))],
+    ["__builtin_f64_floor",   ([a]) => primitive(Math.floor(v(a)))],
+    ["__builtin_f64_ceil",    ([a]) => primitive(Math.ceil(v(a)))],
+    ["__builtin_f64_trunc",   ([a]) => primitive(Math.trunc(v(a)))],
+    ["__builtin_f64_nearest", ([a]) => primitive(Math.round(v(a)))],
+    ["__builtin_f64_min",     ([a, b]) => primitive(Math.min(v(a), v(b)))],
+    ["__builtin_f64_max",     ([a, b]) => primitive(Math.max(v(a), v(b)))],
+
+    // ── 超越関数（予約済み命令、インタープリタでは実装あり） ──────────────────
+    ["__builtin_f32_sin",   ([a]) => primitive(Math.fround(Math.sin(v(a))))],
+    ["__builtin_f32_cos",   ([a]) => primitive(Math.fround(Math.cos(v(a))))],
+    ["__builtin_f32_tan",   ([a]) => primitive(Math.fround(Math.tan(v(a))))],
+    ["__builtin_f32_exp",   ([a]) => primitive(Math.fround(Math.exp(v(a))))],
+    ["__builtin_f32_log",   ([a]) => primitive(Math.fround(Math.log(v(a))))],
+    ["__builtin_f32_pow",   ([a, b]) => primitive(Math.fround(Math.pow(v(a), v(b))))],
+    ["__builtin_f32_atan",  ([a]) => primitive(Math.fround(Math.atan(v(a))))],
+    ["__builtin_f32_atan2", ([a, b]) => primitive(Math.fround(Math.atan2(v(a), v(b))))],
+    ["__builtin_f64_sin",   ([a]) => primitive(Math.sin(v(a)))],
+    ["__builtin_f64_cos",   ([a]) => primitive(Math.cos(v(a)))],
+    ["__builtin_f64_tan",   ([a]) => primitive(Math.tan(v(a)))],
+    ["__builtin_f64_exp",   ([a]) => primitive(Math.exp(v(a)))],
+    ["__builtin_f64_log",   ([a]) => primitive(Math.log(v(a)))],
+    ["__builtin_f64_pow",   ([a, b]) => primitive(Math.pow(v(a), v(b)))],
+    ["__builtin_f64_atan",  ([a]) => primitive(Math.atan(v(a)))],
+    ["__builtin_f64_atan2", ([a, b]) => primitive(Math.atan2(v(a), v(b)))],
+
+    // ── 型変換 ───────────────────────────────────────────────────────────────
+    ["__builtin_i32_to_f32", ([a]) => primitive(Math.fround(v(a) | 0))],
+    ["__builtin_i32_to_u32", ([a]) => primitive((v(a) | 0) >>> 0)],
+    ["__builtin_i32_to_f64", ([a]) => primitive(v(a) | 0)],
+    ["__builtin_u32_to_f32", ([a]) => primitive(Math.fround(v(a) >>> 0))],
+    ["__builtin_u32_to_i32", ([a]) => primitive((v(a) >>> 0) | 0)],
+    ["__builtin_u32_to_f64", ([a]) => primitive(v(a) >>> 0)],
+    ["__builtin_f32_to_i32", ([a]) => primitive(Math.trunc(v(a)) | 0)],
+    ["__builtin_f32_to_u32", ([a]) => primitive(Math.trunc(v(a)) >>> 0)],
+    ["__builtin_i32_to_i64", ([a]) => primitive(n64(toI64(v(a) | 0)))],
+    ["__builtin_u32_to_u64", ([a]) => primitive(n64(toU64(v(a) >>> 0)))],
+    ["__builtin_i64_to_i32", ([a]) => primitive(Number(BigInt.asIntN(32, toI64(v(a)))))],
+    ["__builtin_u64_to_u32", ([a]) => primitive(Number(BigInt.asUintN(32, toU64(v(a)))))],
+    ["__builtin_f32_to_f64", ([a]) => primitive(Math.fround(v(a)))],
+    ["__builtin_f64_to_f32", ([a]) => primitive(Math.fround(v(a)))],
+    ["__builtin_f64_to_i64", ([a]) => primitive(n64(toI64(Math.trunc(v(a)))))],
+    ["__builtin_i64_to_f64", ([a]) => primitive(Number(toI64(v(a))))],
+    ["__builtin_u64_to_f64", ([a]) => primitive(Number(toU64(v(a))))],
+
+    // ── メモリ管理 ───────────────────────────────────────────────────────────
+    ["__builtin_malloc",      ([size]) => primitive(HeapManager.alloc(v(size)))],
+    ["__builtin_free",        ([ptr])  => { HeapManager.free(v(ptr)); return voidValue(); }],
+    ["__builtin_mem_read8",   ([ptr, off]) => HeapManager.read(v(ptr) + v(off))],
+    ["__builtin_mem_read16",  ([ptr, off]) => HeapManager.read(v(ptr) + v(off))],
+    ["__builtin_mem_read32",  ([ptr, off]) => HeapManager.read(v(ptr) + v(off))],
+    ["__builtin_mem_read64",  ([ptr, off]) => HeapManager.read(v(ptr) + v(off))],
+    ["__builtin_mem_write8",  ([ptr, off, val]) => { HeapManager.write(v(ptr) + v(off), val); return voidValue(); }],
+    ["__builtin_mem_write16", ([ptr, off, val]) => { HeapManager.write(v(ptr) + v(off), val); return voidValue(); }],
+    ["__builtin_mem_write32", ([ptr, off, val]) => { HeapManager.write(v(ptr) + v(off), val); return voidValue(); }],
+    ["__builtin_mem_write64", ([ptr, off, val]) => { HeapManager.write(v(ptr) + v(off), val); return voidValue(); }],
+    ["__builtin_zeroinit",    ([]) => primitive(0)],
+
+    // ── 入出力 ───────────────────────────────────────────────────────────────
+    ["__builtin_stdout_write",   ([s]) => { process.stdout.write(runtimeValueToString(s)); return voidValue(); }],
+    ["__builtin_stderr_write",   ([s]) => { process.stderr.write(runtimeValueToString(s)); return voidValue(); }],
+    ["__builtin_stdin_readline", ([])  => { throw new Error("__builtin_stdin_readline is not supported in this version"); }],
+
+    // ── パニック ─────────────────────────────────────────────────────────────
+    ["__builtin_panic", ([msg]) => { throw new PanicError(runtimeValueToString(msg)); }],
+
+    // ── マルチスレッド（シングルスレッドシミュレーション） ────────────────────
+    // mutex / condvar は no-op。ID は ThreadManager.nextId() で発行する。
+    ["__builtin_mutex_create",      ([])       => primitive(ThreadManager.nextId())],
+    ["__builtin_mutex_lock",        ([_m])     => voidValue()],
+    ["__builtin_mutex_unlock",      ([_m])     => voidValue()],
+    ["__builtin_condvar_create",    ([])       => primitive(ThreadManager.nextId())],
+    ["__builtin_condvar_wait",      ([_c, _m]) => voidValue()],
+    ["__builtin_condvar_signal",    ([_c])     => voidValue()],
+    ["__builtin_condvar_broadcast", ([_c])     => voidValue()],
+
+    // atomic は通常のヒープ読み書き（シングルスレッドなので競合なし）
+    ["__builtin_atomic_load",      ([ptr])           => HeapManager.read(v(ptr))],
+    ["__builtin_atomic_store",     ([ptr, val])       => { HeapManager.write(v(ptr), val); return voidValue(); }],
+    ["__builtin_atomic_cas",       ([ptr, exp, des])  => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        if (cur.value === v(exp)) { HeapManager.write(v(ptr), des); return primitive(1); }
+        return primitive(0);
     }],
-    ["__builtin_free", ([ptr]) => {
-        HeapManager.free((ptr as any).value);
-        return voidValue();
+    ["__builtin_atomic_fetch_add", ([ptr, val]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive(cur.value + v(val)));
+        return primitive(cur.value);
     }],
-    ["__builtin_mem_read32", ([ptr, offset]) => {
-        return HeapManager.read((ptr as any).value + (offset as any).value);
-    }],
-    ["__builtin_mem_write32", ([ptr, offset, value]) => {
-        HeapManager.write((ptr as any).value + (offset as any).value, value);
-        return voidValue();
-    }],
-    ["__builtin_zeroinit", ([]) => primitive(0)],
-
-    // 入出力
-    ["__builtin_stdout_write", ([s]) => {
-        process.stdout.write(runtimeValueToString(s));
-        return voidValue();
-    }],
-    ["__builtin_stderr_write", ([s]) => {
-        process.stderr.write(runtimeValueToString(s));
-        return voidValue();
-    }],
-    ["__builtin_stdin_readline", ([]) => {
-        // 同期的な標準入力読み込み（簡易実装）
-        throw new Error("stdin not supported in this version");
-    }],
-
-    // パニック
-    ["__builtin_panic", ([msg]) => {
-        throw new PanicError(runtimeValueToString(msg));
+    ["__builtin_atomic_fetch_sub", ([ptr, val]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive(cur.value - v(val)));
+        return primitive(cur.value);
     }],
 
     // __builtin_if / __builtin_while / __builtin_sizeof は evaluator で特別処理
 
-    // ---- マルチスレッド（エンジンはシングルスレッド動作のためシミュレーション） ----
-    // thread_spawn: タスクキューに積む。thread_join 時に順次実行する。
-    // mutex_* / condvar_* : no-op（シングルスレッドなので競合なし）
-    // atomic_* : 通常の読み書きとして実装（競合なし）
-
-    ["__builtin_mutex_create",  ([]) => primitive(1)],      // ダミーID
-    ["__builtin_mutex_lock",    ([_m]) => voidValue()],
-    ["__builtin_mutex_unlock",  ([_m]) => voidValue()],
-    ["__builtin_condvar_create",    ([]) => primitive(1)],  // ダミーID
-    ["__builtin_condvar_wait",      ([_cv, _m]) => voidValue()],
-    ["__builtin_condvar_signal",    ([_cv]) => voidValue()],
-    ["__builtin_condvar_broadcast", ([_cv]) => voidValue()],
-
-    ["__builtin_atomic_load",      ([ptr]) => HeapManager.read((ptr as any).value)],
-    ["__builtin_atomic_store",     ([ptr, val]) => { HeapManager.write((ptr as any).value, val); return voidValue(); }],
-    ["__builtin_atomic_cas",       ([ptr, expected, desired]) => {
-        const cur = HeapManager.read((ptr as any).value) as any;
-        if (cur.value === (expected as any).value) {
-            HeapManager.write((ptr as any).value, desired);
-            return primitive(1);
-        }
-        return primitive(0);
-    }],
-    ["__builtin_atomic_fetch_add", ([ptr, val]) => {
-        const cur = HeapManager.read((ptr as any).value) as any;
-        HeapManager.write((ptr as any).value, primitive(cur.value + (val as any).value));
-        return primitive(cur.value);
-    }],
-    ["__builtin_atomic_fetch_sub", ([ptr, val]) => {
-        const cur = HeapManager.read((ptr as any).value) as any;
-        HeapManager.write((ptr as any).value, primitive(cur.value - (val as any).value));
-        return primitive(cur.value);
-    }],
-]);
+] as [string, BuiltinFn][]);
 
 // スレッドマネージャー（シングルスレッドシミュレーション用）
 export class ThreadManager {
-    private static tasks: Map<number, { fnName: string; args: any[] }> = new Map();
-    private static pools: Map<number, { fnName: string; args: any[] }[]> = new Map();
-    private static nextId = 1;
+    private static tasks: Map<number, { fnName: string; args: RuntimeValue[] }> = new Map();
+    private static pools: Map<number, { fnName: string; args: RuntimeValue[] }[]> = new Map();
+    private static _nextId = 1;
 
-    static enqueue(fnName: string, args: any[]): number {
-        const id = this.nextId++;
+    // ダミーIDの発行（mutex/condvar 用）
+    static nextId(): number { return this._nextId++; }
+
+    static enqueue(fnName: string, args: RuntimeValue[]): number {
+        const id = this._nextId++;
         this.tasks.set(id, { fnName, args });
         return id;
     }
 
-    static join(id: number, evaluator: any): void {
+    // runner は (fnName, args) → void のコールバック（Evaluator への依存を排除）
+    static joinTask(id: number, runner: (fnName: string, args: RuntimeValue[]) => void): void {
         const task = this.tasks.get(id);
         if (task) {
-            const fn = evaluator.functions.get(task.fnName);
-            if (fn) evaluator.callFunction(fn, task.args, evaluator.globalEnv);
+            runner(task.fnName, task.args);
             this.tasks.delete(id);
         }
     }
 
     static createPool(_size: number): number {
-        const id = this.nextId++;
+        const id = this._nextId++;
         this.pools.set(id, []);
         return id;
     }
 
-    static submitToPool(poolId: number, fnName: string, args: any[]): void {
+    static submitToPool(poolId: number, fnName: string, args: RuntimeValue[]): void {
         this.pools.get(poolId)?.push({ fnName, args });
     }
 
-    static waitPool(poolId: number, evaluator: any): void {
+    static waitPool(poolId: number, runner: (fnName: string, args: RuntimeValue[]) => void): void {
         for (const task of this.pools.get(poolId) ?? []) {
-            const fn = evaluator.functions.get(task.fnName);
-            if (fn) evaluator.callFunction(fn, task.args, evaluator.globalEnv);
+            runner(task.fnName, task.args);
         }
         this.pools.set(poolId, []);
     }
@@ -615,23 +699,21 @@ export class HeapManager {
     }
 }
 
-// ランタイム値を文字列に変換（出力用）
+// ランタイム値を文字列に変換（I/O用）
+// ObjectValue.fields は Record（plain object）なので [] でアクセスする
 export function runtimeValueToString(value: RuntimeValue): string {
     if (value.kind === "object" && value.className.split("<")[0] === "Array") {
-        // Array<char> を文字列として出力
-        const length = value.fields.get("length") as any;
-        const ptr = value.fields.get("ptr") as any;
+        const length = value.fields["length"] as any;
+        const ptr    = value.fields["ptr"]    as any;
         if (!length || !ptr) return "";
 
-        // length は i32 ObjectValue（fields.bits）または PrimitiveValue
         const len: number = length.kind === "object"
-            ? ((length.fields.get("bits") as any)?.value ?? 0)
+            ? ((length.fields["bits"] as any)?.value ?? 0)
             : (length.value ?? 0);
 
-        // ptr は _m32 PrimitiveValue
         const ptrAddr: number = ptr.kind === "primitive"
             ? ptr.value
-            : ((ptr.fields?.get("bits") as any)?.value ?? 0);
+            : ((ptr.fields?.["bits"] as any)?.value ?? 0);
 
         let result = "";
         for (let i = 0; i < len; i++) {
@@ -640,8 +722,7 @@ export function runtimeValueToString(value: RuntimeValue): string {
             if (charVal.kind === "primitive") {
                 codePoint = charVal.value;
             } else if (charVal.kind === "object") {
-                // u32 / char ObjectValue
-                codePoint = (charVal.fields?.get("bits") as any)?.value ?? 0;
+                codePoint = (charVal.fields?.["bits"] as any)?.value ?? 0;
             } else {
                 codePoint = 0;
             }
@@ -650,7 +731,7 @@ export function runtimeValueToString(value: RuntimeValue): string {
         return result;
     }
     if (value.kind === "primitive") return String(value.value);
-    if (value.kind === "void") return "";
+    if (value.kind === "void")      return "";
     return `[object ${(value as any).className}]`;
 }
 ```
@@ -667,24 +748,22 @@ import * as nodePath from "path";
 import { ASTNode, ClassDecl, FunctionDecl, MozaicScriptAST } from "./types";
 import { RuntimeValue, ObjectValue, primitive, voidValue } from "./values";
 import { Environment } from "./environment";
-import { builtins, PanicError, HeapManager } from "./builtins";
-
-// 制御フロー用の特殊シグナル
-class ReturnSignal { constructor(public value: RuntimeValue) {} }
-class BreakSignal {}
+import { builtins, HeapManager, ThreadManager } from "./builtins";
 
 export class Evaluator {
-    private baseDir: string;
-    private loadedFiles: Set<string> = new Set();    // 読み込み完了済み
-    private loadingFiles: Set<string> = new Set();   // 現在読み込み中（循環検出）
+    private loadedFiles: Set<string> = new Set();
+    private loadingFiles: Set<string> = new Set();
     private classes: Map<string, ClassDecl> = new Map();
     private functions: Map<string, FunctionDecl> = new Map();
     private globalEnv: Environment = new Environment();
-    private currentFileExt: string = ".moc";         // 現在実行中のファイル拡張子
+    private currentFileExt: string = ".moc";
 
-    constructor(baseDir: string) {
-        this.baseDir = baseDir;
-    }
+    // 制御フローをフラグで管理（throw/catch よりも高速）
+    private _hasRet   = false;
+    private _retVal: RuntimeValue = voidValue();
+    private _hasBreak = false;
+
+    constructor(_baseDir: string) {}
 
     run(entryPath: string): void {
         this.loadAST(entryPath, null);
@@ -694,10 +773,7 @@ export class Evaluator {
     }
 
     private loadAST(filePath: string, namespace: string | null): void {
-        // 読み込み済みなら再処理しない（shared import は正常）
         if (this.loadedFiles.has(filePath)) return;
-
-        // 現在処理中なら循環インポート
         if (this.loadingFiles.has(filePath)) {
             throw new Error(`Circular import detected: ${filePath}`);
         }
@@ -707,11 +783,9 @@ export class Evaluator {
         const json = fs.readFileSync(astPath, "utf-8");
         const ast: MozaicScriptAST = JSON.parse(json);
 
-        // ファイル拡張子を判定（mocp public アクセス制御用）
         const basename = nodePath.basename(filePath);
         const fileExt = basename.endsWith(".moc") ? ".moc" : ".moz";
 
-        // ImportDecl を先に再帰処理（インポート元のディレクトリ基準でパスを解決）
         for (const node of ast.nodes) {
             if (node.type === "ImportDecl") {
                 const fileDir = nodePath.dirname(filePath);
@@ -720,7 +794,6 @@ export class Evaluator {
             }
         }
 
-        // クラス・関数を登録（_fileExt を付与して mocp 制御に使用）
         for (const node of ast.nodes) {
             if (node.type === "ClassDecl") {
                 const key = namespace ? `${namespace}.${node.name}` : node.name;
@@ -739,7 +812,11 @@ export class Evaluator {
         this.loadingFiles.delete(filePath);
     }
 
-    // ノードの評価
+    // 引数を評価してバッファに格納する（アロケーション削減用）
+    private evalArgs(nodes: ASTNode[], env: Environment): RuntimeValue[] {
+        return nodes.map(n => this.eval(n, env));
+    }
+
     private eval(node: ASTNode, env: Environment): RuntimeValue {
         switch (node.type) {
             case "VarDecl": {
@@ -754,97 +831,74 @@ export class Evaluator {
                     env.assign(node.target.name, value);
                 } else if (node.target.type === "MemberAccess") {
                     const receiver = this.eval(node.target.receiver, env) as ObjectValue;
-                    receiver.fields.set(node.target.member, value);
+                    receiver.fields[node.target.member] = value;  // Record アクセス
                 }
                 return voidValue();
             }
 
-            case "Identifier": {
-                return env.get(node.name);
-            }
+            case "Identifier": return env.get(node.name);
 
             case "MemberAccess": {
                 const receiver = this.eval(node.receiver, env) as ObjectValue;
-                const field = receiver.fields.get(node.member);
+                const field = receiver.fields[node.member];       // Record アクセス
                 if (field === undefined) {
                     throw new Error(`Field not found: ${node.member} on ${receiver.className}`);
                 }
                 return field;
             }
 
-            case "RawLiteral": {
-                return primitive(node.value);
-            }
+            case "RawLiteral": return primitive(node.value);
+            case "NewExpr":    return this.evalNewExpr(node, env);
+            case "MethodCall": return this.evalMethodCall(node, env);
+            case "Intrinsic":  return this.evalIntrinsic(node, env);
 
-            case "NewExpr": {
-                return this.evalNewExpr(node, env);
-            }
-
-            case "MethodCall": {
-                return this.evalMethodCall(node, env);
-            }
-
-            case "Intrinsic": {
-                return this.evalIntrinsic(node, env);
-            }
-
-            case "IfStmt": {
-                this.evalIfStmt(node, env);
-                return voidValue();
-            }
-
-            case "WhileStmt": {
-                this.evalWhileStmt(node, env);
-                return voidValue();
-            }
-
-            case "ForStmt": {
-                this.evalForStmt(node, env);
-                return voidValue();
-            }
+            case "IfStmt":    { this.evalIfStmt(node, env);    return voidValue(); }
+            case "WhileStmt": { this.evalWhileStmt(node, env); return voidValue(); }
+            case "ForStmt":   { this.evalForStmt(node, env);   return voidValue(); }
 
             case "ReturnStmt": {
-                const value = node.value ? this.eval(node.value, env) : voidValue();
-                throw new ReturnSignal(value);
+                // 例外ではなくフラグで return を通知する
+                this._retVal = node.value ? this.eval(node.value, env) : voidValue();
+                this._hasRet = true;
+                return voidValue();
             }
 
             case "BreakStmt": {
-                throw new BreakSignal();
+                this._hasBreak = true;
+                return voidValue();
             }
 
-            // ---- マルチスレッドノード（シングルスレッドシミュレーション） ----
+            // ── マルチスレッドノード（シングルスレッドシミュレーション） ──────────
             case "ThreadSpawn": {
-                // タスクキューに積み、thread_join 時に順次実行する
-                const taskId = ThreadManager.enqueue(node.fnName, node.args.map((a: ASTNode) => this.eval(a, env)));
-                return primitive(taskId);
+                const args = node.args.map((a: ASTNode) => this.eval(a, env));
+                return primitive(ThreadManager.enqueue(node.fnName, args));
             }
             case "ThreadJoin": {
-                const id = (this.eval(node.threadId, env) as any).value;
-                ThreadManager.join(id, this);
+                const id = (this.eval(node.threadId, env) as any).value as number;
+                ThreadManager.joinTask(id, (fnName, args) => this.callTopFunction(fnName, args));
                 return voidValue();
             }
             case "ThreadPoolCreate": {
-                const poolId = ThreadManager.createPool((this.eval(node.size, env) as any).value);
-                return primitive(poolId);
+                return primitive(ThreadManager.createPool((this.eval(node.size, env) as any).value));
             }
             case "ThreadPoolSubmit": {
-                const poolId = (this.eval(node.pool, env) as any).value;
-                ThreadManager.submitToPool(poolId, node.fnName, node.args.map((a: ASTNode) => this.eval(a, env)));
+                const poolId = (this.eval(node.pool, env) as any).value as number;
+                const args = node.args.map((a: ASTNode) => this.eval(a, env));
+                ThreadManager.submitToPool(poolId, node.fnName, args);
                 return voidValue();
             }
             case "ThreadPoolWait": {
-                const poolId = (this.eval(node.pool, env) as any).value;
-                ThreadManager.waitPool(poolId, this);
+                const poolId = (this.eval(node.pool, env) as any).value as number;
+                ThreadManager.waitPool(poolId, (fnName, args) => this.callTopFunction(fnName, args));
                 return voidValue();
             }
             case "ThreadPoolDestroy": {
-                const poolId = (this.eval(node.pool, env) as any).value;
-                ThreadManager.destroyPool(poolId);
+                ThreadManager.destroyPool((this.eval(node.pool, env) as any).value);
                 return voidValue();
             }
             case "MutexCreate":
             case "CondVarCreate": {
-                return primitive(1); // no-op: ダミーID
+                return primitive(ThreadManager.nextId()); // ダミーID
             }
             case "MutexLock":
             case "MutexUnlock":
@@ -854,71 +908,61 @@ export class Evaluator {
                 return voidValue(); // no-op
             }
             case "AtomicLoad": {
-                const fn = builtins.get("__builtin_atomic_load")!;
-                return fn([this.eval(node.ptr, env)]);
+                return HeapManager.read((this.eval(node.ptr, env) as any).value);
             }
             case "AtomicStore": {
-                const fn = builtins.get("__builtin_atomic_store")!;
-                return fn([this.eval(node.ptr, env), this.eval(node.value, env)]);
+                HeapManager.write((this.eval(node.ptr, env) as any).value, this.eval(node.value, env));
+                return voidValue();
             }
             case "AtomicCas": {
-                const fn = builtins.get("__builtin_atomic_cas")!;
-                return fn([this.eval(node.ptr, env), this.eval(node.expected, env), this.eval(node.desired, env)]);
+                const addr = (this.eval(node.ptr, env) as any).value;
+                const cur  = HeapManager.read(addr) as any;
+                const exp  = (this.eval(node.expected, env) as any).value;
+                if (cur.value === exp) { HeapManager.write(addr, this.eval(node.desired, env)); return primitive(1); }
+                return primitive(0);
             }
             case "AtomicFetchAdd": {
-                const fn = builtins.get("__builtin_atomic_fetch_add")!;
-                return fn([this.eval(node.ptr, env), this.eval(node.value, env)]);
+                const addr = (this.eval(node.ptr, env) as any).value;
+                const cur  = HeapManager.read(addr) as any;
+                const inc  = (this.eval(node.value, env) as any).value;
+                HeapManager.write(addr, primitive(cur.value + inc));
+                return primitive(cur.value);
             }
             case "AtomicFetchSub": {
-                const fn = builtins.get("__builtin_atomic_fetch_sub")!;
-                return fn([this.eval(node.ptr, env), this.eval(node.value, env)]);
+                const addr = (this.eval(node.ptr, env) as any).value;
+                const cur  = HeapManager.read(addr) as any;
+                const dec  = (this.eval(node.value, env) as any).value;
+                HeapManager.write(addr, primitive(cur.value - dec));
+                return primitive(cur.value);
             }
 
-            default:
-                return voidValue();
+            default: return voidValue();
         }
     }
 
-    // NewExpr の評価
     private evalNewExpr(node: any, env: Environment): RuntimeValue {
-        // 文字列リテラル展開（elements フィールドが存在する場合）
         if (node.elements !== undefined) {
-            const classDef = this.classes.get("Array");
-            if (!classDef) throw new Error("Unknown class: Array (core library not loaded)");
+            // 文字列リテラル展開
+            const classDef    = this.classes.get("Array");
             const lenClassDef = this.classes.get("i32");
-            if (!lenClassDef) throw new Error("Unknown class: i32 (core library not loaded)");
+            if (!classDef || !lenClassDef) throw new Error("Core library not loaded");
 
-            const instance: ObjectValue = {
-                kind: "object",
-                className: node.resolvedType,
-                fields: new Map(),
-                classDef,
-            };
-            for (const field of classDef.members) {
-                instance.fields.set(field.name, primitive(0));
-            }
+            const fields: Record<string, RuntimeValue> = Object.create(null);
+            for (const field of classDef.members) fields[field.name] = primitive(0);
 
-            // length フィールドを i32 ObjectValue として設定
-            const lenInstance: ObjectValue = {
-                kind: "object",
-                className: "i32",
-                fields: new Map([["bits", primitive(node.elements.length)]]),
-                classDef: lenClassDef,
-            };
-            instance.fields.set("length", lenInstance);
+            const lenFields: Record<string, RuntimeValue> = Object.create(null);
+            lenFields["bits"] = primitive(node.elements.length);
+            fields["length"] = { kind: "object", className: "i32", fields: lenFields, classDef: lenClassDef };
 
-            // 各文字をヒープに書き込む（空文字列は ptr=0 のまま）
             if (node.elements.length > 0) {
                 const addr = HeapManager.alloc(node.elements.length * 4);
-                instance.fields.set("ptr", primitive(addr));
-                node.elements.forEach((e: any, i: number) => {
-                    HeapManager.write(addr + i * 4, primitive(e.value));
-                });
+                fields["ptr"] = primitive(addr);
+                node.elements.forEach((e: any, i: number) => HeapManager.write(addr + i * 4, primitive(e.value)));
             } else {
-                instance.fields.set("ptr", primitive(0));
+                fields["ptr"] = primitive(0);
             }
 
-            return instance;
+            return { kind: "object", className: node.resolvedType, fields, classDef };
         }
 
         // 通常のクラスインスタンス化
@@ -926,76 +970,58 @@ export class Evaluator {
         const classDef = this.classes.get(className);
         if (!classDef) throw new Error(`Unknown class: ${node.resolvedType}`);
 
-        const instance: ObjectValue = {
-            kind: "object",
-            className: node.resolvedType,
-            fields: new Map(),
-            classDef,
-        };
+        const fields: Record<string, RuntimeValue> = Object.create(null);
+        for (const field of classDef.members) fields[field.name] = primitive(0);
 
-        // フィールドを primitive(0) で初期化
-        for (const field of classDef.members) {
-            instance.fields.set(field.name, primitive(0));
-        }
+        const instance: ObjectValue = { kind: "object", className: node.resolvedType, fields, classDef };
 
-        // コンストラクタを呼び出し（callFunction 経由で ReturnSignal・mocp 制御を適用）
         const constructor = classDef.methods.find(m => m.name === "constructor");
         if (constructor) {
-            const args = node.args.map((a: ASTNode) => this.eval(a, env));
-            this.callFunction(constructor, args, env, instance);
+            this.callFunction(constructor, this.evalArgs(node.args, env), env, instance);
         }
 
         return instance;
     }
 
-    // MethodCall の評価
     private evalMethodCall(node: any, env: Environment): RuntimeValue {
         const receiver = this.eval(node.receiver, env) as ObjectValue;
-        const args = node.args.map((a: ASTNode) => this.eval(a, env));
+        const args = this.evalArgs(node.args, env);
 
         const method = receiver.classDef.methods.find(m => m.name === node.method);
         if (!method) {
             throw new Error(`Method not found: ${node.method} on ${receiver.className}`);
         }
 
-        // mocp public アクセス制御（.moz ファイル由来の呼び出しは禁止）
         if (method.access === "mocp public" && this.currentFileExt === ".moz") {
-            throw new Error(
-                `Cannot access mocp public member '${node.method}' from .moz file`
-            );
+            throw new Error(`Cannot access mocp public member '${node.method}' from .moz file`);
         }
 
         return this.callFunction(method, args, env, receiver);
     }
 
-    // Intrinsic の評価
     private evalIntrinsic(node: any, env: Environment): RuntimeValue {
-        // __builtin_if / __builtin_while: boolean の bits フィールドを抽出して返す
+        // __builtin_if / __builtin_while: boolean の bits フィールドを抽出
         if (node.name === "__builtin_if" || node.name === "__builtin_while") {
             const cond = this.eval(node.args[0], env) as any;
             const bits = cond.kind === "object"
-                ? (cond.fields.get("bits") as any).value
+                ? (cond.fields["bits"] as any).value  // Record アクセス
                 : cond.value;
             return primitive(bits !== 0 ? 1 : 0);
         }
 
-        // __builtin_sizeof: targetType からクラスの private フィールドサイズを計算
         if (node.name === "__builtin_sizeof") {
             return this.evalSizeof(node.targetType ?? "i32");
         }
 
-        const fn = builtins.get(node.name);
+        const fn = builtins[node.name];  // Record アクセス
         if (!fn) throw new Error(`Unknown builtin: ${node.name}`);
-        const evaledArgs = node.args.map((a: ASTNode) => this.eval(a, env));
-        return fn(evaledArgs);
+        return fn(this.evalArgs(node.args, env));
     }
 
-    // __builtin_sizeof の実装
-    // クラスの private フィールドの型に応じてバイト数を合計して返す
     private evalSizeof(targetType: string): RuntimeValue {
         const className = targetType.split("<")[0];
         const classDef = this.classes.get(className);
-        if (!classDef) return primitive(4); // フォールバック
+        if (!classDef) return primitive(4);
 
         let totalBytes = 0;
         for (const field of classDef.members) {
@@ -1014,86 +1040,80 @@ export class Evaluator {
         return primitive(totalBytes > 0 ? totalBytes : 4);
     }
 
-    // IfStmt の評価
     private evalIfStmt(node: any, env: Environment): void {
         const cond = this.eval(node.cond, env) as any;
         if (cond.value !== 0) {
-            const bodyEnv = env.extend();
-            this.execBody(node.body, bodyEnv);
+            this.execBody(node.body, env.extend());
         } else if (node.else) {
             if (node.else.type === "IfStmt") {
                 this.evalIfStmt(node.else, env);
             } else {
-                const elseEnv = env.extend();
-                this.execBody(node.else.body, elseEnv);
+                this.execBody(node.else.body, env.extend());
             }
         }
     }
 
-    // WhileStmt の評価
     private evalWhileStmt(node: any, env: Environment): void {
         while (true) {
             const cond = this.eval(node.cond, env) as any;
             if (cond.value === 0) break;
-            try {
-                const bodyEnv = env.extend();
-                this.execBody(node.body, bodyEnv);
-            } catch (e) {
-                if (e instanceof BreakSignal) break;
-                throw e;
-            }
+            this.execBody(node.body, env.extend());
+            if (this._hasBreak) { this._hasBreak = false; break; }
+            if (this._hasRet) return;
         }
     }
 
-    // ForStmt の評価
     private evalForStmt(node: any, env: Environment): void {
         const forEnv = env.extend();
         this.eval(node.init, forEnv);
         while (true) {
             const cond = this.eval(node.cond, forEnv) as any;
             if (cond.value === 0) break;
-            try {
-                const bodyEnv = forEnv.extend();
-                this.execBody(node.body, bodyEnv);
-            } catch (e) {
-                if (e instanceof BreakSignal) break;
-                throw e;
-            }
+            this.execBody(node.body, forEnv.extend());
+            if (this._hasBreak) { this._hasBreak = false; break; }
+            if (this._hasRet) return;
             this.eval(node.update, forEnv);
         }
     }
 
-    // 関数・メソッドの呼び出し
     private callFunction(
         fn: FunctionDecl,
         args: RuntimeValue[],
         env: Environment,
         thisVal?: ObjectValue
     ): RuntimeValue {
-        // ソースファイル拡張子を切り替え（mocp public アクセス制御用）
         const prevFileExt = this.currentFileExt;
         const fnFileExt = (fn as any)._fileExt;
         if (fnFileExt) this.currentFileExt = fnFileExt;
 
         const fnEnv = env.extend();
         if (thisVal) fnEnv.define("this", thisVal);
-        fn.params.forEach((p, i) => fnEnv.define(p.name, args[i]));
+        const nParams = fn.params.length;
+        for (let i = 0; i < nParams; i++) fnEnv.define(fn.params[i].name, args[i]);
 
-        try {
-            this.execBody(fn.body, fnEnv);
-        } catch (e) {
-            this.currentFileExt = prevFileExt;
-            if (e instanceof ReturnSignal) return e.value;
-            throw e;
-        }
+        this.execBody(fn.body, fnEnv);
         this.currentFileExt = prevFileExt;
+
+        if (this._hasRet) {
+            this._hasRet = false;
+            const val = this._retVal;
+            this._retVal = voidValue();
+            return val;
+        }
         return voidValue();
     }
 
-    // ボディの実行
+    // ThreadSpawn / ThreadPoolSubmit のコールバック用（グローバルスコープで実行）
+    private callTopFunction(fnName: string, args: RuntimeValue[]): void {
+        const fn = this.functions.get(fnName);
+        if (!fn) throw new Error(`Thread function not found: ${fnName}`);
+        this.callFunction(fn, args, this.globalEnv);
+    }
+
     private execBody(body: ASTNode[], env: Environment): void {
         for (const node of body) {
             this.eval(node, env);
+            if (this._hasRet || this._hasBreak) return;
         }
     }
 }
@@ -1103,26 +1123,24 @@ export class Evaluator {
 
 ## 8. エントリーポイント (`index.ts`)
 
+最新の実装は §11.6 を参照すること。`Evaluator` はコンストラクタにベースディレクトリを受け取り、`run()` はASTオブジェクトではなくエントリーファイルのパスを受け取る。
+
 ```typescript
-import * as fs from "fs";
+import * as nodePath from "path";
 import { Evaluator } from "./evaluator";
-import { MozaicScriptAST } from "./types";
 import { PanicError } from "./builtins";
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
-    console.error("Usage: ts-node index.ts <ast.json>");
+    console.error("Usage: ts-node index.ts <main.moz.ast.json>");
     process.exit(1);
 }
 
-const filePath = args[0];
-const json = fs.readFileSync(filePath, "utf-8");
-const ast: MozaicScriptAST = JSON.parse(json);
-
-const evaluator = new Evaluator();
+const entryPath = nodePath.resolve(args[0]);
+const evaluator = new Evaluator(nodePath.dirname(entryPath));
 
 try {
-    evaluator.run(ast);
+    evaluator.run(entryPath);
 } catch (e) {
     if (e instanceof PanicError) {
         console.error(e.message);
@@ -1149,13 +1167,17 @@ ts-node index.ts output.json
 ## 10. 実装上の注意事項
 
 - **`__builtin_sizeof`** はクラスの `private` フィールドの型（`_m8`=1, `_m16`=2, `_m32`=4, `_m64`=8, `_m128`=16, `_m256`=32, `_m512`=64バイト）の合計を返す。`evaluator.ts` 内の `evalSizeof()` で実装し、`builtins.ts` には登録しない。
-- **マルチスレッドノード** はエンジンがシングルスレッドで動作するためシミュレーションとして処理する。`ThreadSpawn` / `ThreadPoolSubmit` はタスクキュー（`ThreadManager`）に積み、`ThreadJoin` / `ThreadPoolWait` 時に同期的に実行する。`mutex_*` / `condvar_*` は no-op。`atomic_*` は通常のヒープ読み書きとして処理する。
-- **`__builtin_stdin_readline`** は現バージョンでは未実装。
+- **制御フロー** は `throw`/`catch` ではなくフラグ（`_hasRet`、`_retVal`、`_hasBreak`）で実現する。`ReturnStmt` / `BreakStmt` を評価するとフラグを立てて `voidValue()` を返し、呼び出し元（`execBody`、ループ評価、`callFunction`）がフラグを確認して処理を打ち切る。
+- **マルチスレッドノード** はエンジンがシングルスレッドで動作するためシミュレーションとして処理する。`ThreadSpawn` / `ThreadPoolSubmit` はタスクキュー（`ThreadManager`）に積み、`ThreadJoin` / `ThreadPoolWait` 時に同期的に実行する。`ThreadManager.joinTask()` と `waitPool()` はコールバック（`runner`）を受け取り、Evaluator への直接依存を排除している。`mutex_*` / `condvar_*` は no-op。`atomic_*` は通常のヒープ読み書きとして処理する。
+- **`ObjectValue.fields`** は `Map` ではなく `Record<string, RuntimeValue>`（`Object.create(null)` で生成したプロトタイプなし plain object）を使用する。アクセスは `fields["key"]` で行い、`fields.get()` / `fields.set()` は使わない。
+- **`builtins`** は `Map<string, BuiltinFn>` ではなく `Record<string, BuiltinFn>`（`Object.fromEntries([...])` で生成）を使用する。ルックアップは `builtins[name]` で行う。
+- **`__builtin_stdin_readline`** は現バージョンでは未実装（例外をスローする）。
 - **ヒープ管理** はJavaScriptの `Map` で模倣しており、実際のメモリアドレスとは異なる。
 - **`this` のフィールド更新** はコンストラクタ・メソッド内で `this` を参照して直接変更する形で実装する。
 - **ジェネリクス** は単一化済みのASTを受け取るため、エンジン側では型パラメータを意識しなくてよい。
-- **`__builtin_if` / `__builtin_while`** は引数として `boolean` の ObjectValue を受け取る。`evalIntrinsic` 内でその `bits` フィールド（PrimitiveValue）を取り出し、`value !== 0` で分岐を判断する。builtins.ts には登録せず、evaluator.ts 内で特別処理する。
-- **`MemberAccess` の代入** は `Assign` ノードの `target` が `MemberAccess` の場合として処理する。`eval` の `Assign` ケースで `target.type === "MemberAccess"` を判定し、対象オブジェクトの `fields` を直接更新する。
+- **`__builtin_if` / `__builtin_while`** は引数として `boolean` の ObjectValue を受け取る。`evalIntrinsic` 内でその `bits` フィールド（PrimitiveValue）を `fields["bits"]` で取り出し、`value !== 0` で分岐を判断する。builtins.ts には登録せず、evaluator.ts 内で特別処理する。
+- **`MemberAccess` の代入** は `Assign` ノードの `target` が `MemberAccess` の場合として処理する。`eval` の `Assign` ケースで `target.type === "MemberAccess"` を判定し、対象オブジェクトの `fields[member]` を直接更新する。
+- **`callTopFunction()`** は `ThreadSpawn` / `ThreadPoolSubmit` のコールバック用ヘルパーで、関数名を `this.functions` から引いてグローバルスコープで実行する。
 
 ---
 
@@ -1263,76 +1285,7 @@ try {
 }
 ```
 
-`Evaluator` のコンストラクタはベースディレクトリを受け取り、相対パスの解決に使用する。
-
-```typescript
-export class Evaluator {
-    private baseDir: string;
-    private loadedFiles: Set<string> = new Set();    // 読み込み完了済み
-    private loadingFiles: Set<string> = new Set();   // 現在読み込み中（循環検出）
-    private classes: Map<string, ClassDecl> = new Map();
-    private functions: Map<string, FunctionDecl> = new Map();
-    private globalEnv: Environment = new Environment();
-    private currentFileExt: string = ".moc";         // 現在実行中のファイル拡張子
-
-    constructor(baseDir: string) {
-        this.baseDir = baseDir;
-    }
-
-    run(entryPath: string): void {
-        this.loadAST(entryPath, null);
-        const main = this.functions.get("main");
-        if (!main) throw new Error("main() function not found");
-        this.callFunction(main, [], this.globalEnv);
-    }
-
-    private loadAST(filePath: string, namespace: string | null): void {
-        // 読み込み済みなら再処理しない（shared import は正常）
-        if (this.loadedFiles.has(filePath)) return;
-
-        // 現在処理中なら循環インポート
-        if (this.loadingFiles.has(filePath)) {
-            throw new Error(`Circular import detected: ${filePath}`);
-        }
-        this.loadingFiles.add(filePath);
-
-        const astPath = filePath + ".ast.json";
-        const json = fs.readFileSync(astPath, "utf-8");
-        const ast: MozaicScriptAST = JSON.parse(json);
-
-        // ファイル拡張子を判定（mocp public アクセス制御用）
-        const basename = nodePath.basename(filePath);
-        const fileExt = basename.endsWith(".moc") ? ".moc" : ".moz";
-
-        // ImportDecl を先に再帰処理（インポート元のディレクトリ基準でパスを解決）
-        for (const node of ast.nodes) {
-            if (node.type === "ImportDecl") {
-                const fileDir = nodePath.dirname(filePath);
-                const importPath = nodePath.resolve(fileDir, node.path);
-                this.loadAST(importPath, node.namespace);
-            }
-        }
-
-        // クラス・関数定義を登録（_fileExt を付与して mocp 制御に使用）
-        for (const node of ast.nodes) {
-            if (node.type === "ClassDecl") {
-                const key = namespace ? `${namespace}.${node.name}` : node.name;
-                for (const method of node.methods) {
-                    (method as any)._fileExt = fileExt;
-                }
-                this.classes.set(key, node);
-            } else if (node.type === "FunctionDecl") {
-                const key = namespace ? `${namespace}.${node.name}` : node.name;
-                (node as any)._fileExt = fileExt;
-                this.functions.set(key, node);
-            }
-        }
-
-        this.loadedFiles.add(filePath);
-        this.loadingFiles.delete(filePath);
-    }
-}
-```
+`Evaluator` のコンストラクタはベースディレクトリを受け取る（実際にはエントリーファイルと同じディレクトリ）。`loadAST()` の実装は §7 の `Evaluator` クラスを参照すること。
 
 ---
 

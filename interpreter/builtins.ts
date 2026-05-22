@@ -9,7 +9,7 @@ function n64(b: bigint): number   { return Number(b); }
 
 function v(x: RuntimeValue): number { return (x as any).value; }
 
-export const builtins: Map<string, BuiltinFn> = new Map([
+export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
 
     // ── i32 算術 ──────────────────────────────────────────────────────────────
     ["__builtin_i32_add", ([a, b]) => primitive((v(a) + v(b)) | 0)],
@@ -228,7 +228,7 @@ export const builtins: Map<string, BuiltinFn> = new Map([
     }],
 
     // __builtin_if / __builtin_while / __builtin_sizeof は evaluator で特別処理
-]);
+] as [string, BuiltinFn][]);
 
 // ── パニックエラー ─────────────────────────────────────────────────────────────
 
@@ -317,17 +317,17 @@ export class ThreadManager {
 
 export function runtimeValueToString(value: RuntimeValue): string {
     if (value.kind === "object" && value.className.split("<")[0] === "Array") {
-        const length = value.fields.get("length") as any;
-        const ptr    = value.fields.get("ptr")    as any;
+        const length = value.fields["length"] as any;
+        const ptr    = value.fields["ptr"]    as any;
         if (!length || !ptr) return "";
 
         const len: number = length.kind === "object"
-            ? ((length.fields.get("bits") as any)?.value ?? 0)
+            ? ((length.fields["bits"] as any)?.value ?? 0)
             : (length.value ?? 0);
 
         const ptrAddr: number = ptr.kind === "primitive"
             ? ptr.value
-            : ((ptr.fields?.get("bits") as any)?.value ?? 0);
+            : ((ptr.fields?.["bits"] as any)?.value ?? 0);
 
         let result = "";
         for (let i = 0; i < len; i++) {
@@ -336,7 +336,7 @@ export function runtimeValueToString(value: RuntimeValue): string {
             if (charVal.kind === "primitive") {
                 codePoint = charVal.value;
             } else if (charVal.kind === "object") {
-                codePoint = (charVal.fields?.get("bits") as any)?.value ?? 0;
+                codePoint = (charVal.fields?.["bits"] as any)?.value ?? 0;
             } else {
                 codePoint = 0;
             }
