@@ -508,11 +508,16 @@ export class JSCodegen {
         const { ptr, length } = this.arrayFields();
         return `\
 /* ── mozaicScript JS runtime ── */
-const _ms_heap = new Int32Array(1 << 24); // 64 MiWord heap
+let _ms_heap = new Int32Array(1 << 20); // start 4 MiB, grows on demand
 let _ms_heap_next = 1;
 function _ms_malloc(n_bytes) {
     const a = _ms_heap_next;
     _ms_heap_next += ((n_bytes + 3) >> 2) | 0;
+    if (_ms_heap_next > _ms_heap.length) {
+        const next = new Int32Array(Math.max(_ms_heap.length * 2, _ms_heap_next));
+        next.set(_ms_heap);
+        _ms_heap = next;
+    }
     return a;
 }
 function _ms_free(_ptr) {}

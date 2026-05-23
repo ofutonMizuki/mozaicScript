@@ -394,17 +394,16 @@ mozaicScriptは `try`, `catch`, `throw` といった例外専用の制御構造�
 
 | 命令 | 説明 |
 |------|------|
-| `__builtin_malloc(size_bytes: _m32): _m32` | ヒープメモリ確保（32bitポインタ版） |
-| `__builtin_malloc(size_bytes: _m64): _m64` | ヒープメモリ確保（64bitポインタ版） |
+| `__builtin_malloc(size_bytes: _m32): _m32` | ヒープメモリ確保（ワードアドレス `_m32` を返す） |
 | `__builtin_free(ptr: _m32): void` | ヒープメモリ解放 |
-| `__builtin_mem_read8(ptr: _m64, offset: _m64): _m32` | 8bit読み込み（ゼロ拡張） |
-| `__builtin_mem_read16(ptr: _m64, offset: _m64): _m32` | 16bit読み込み（ゼロ拡張） |
+| `__builtin_mem_read8(ptr: _m32, offset: _m32): _m32` | 8bit読み込み（ゼロ拡張） |
+| `__builtin_mem_read16(ptr: _m32, offset: _m32): _m32` | 16bit読み込み（ゼロ拡張） |
 | `__builtin_mem_read32(ptr: _m32, offset: _m32): _m32` | 32bit読み込み |
-| `__builtin_mem_write8(ptr: _m64, offset: _m64, value: _m32): void` | 8bit書き込み |
-| `__builtin_mem_write16(ptr: _m64, offset: _m64, value: _m32): void` | 16bit書き込み |
+| `__builtin_mem_read64(ptr: _m32, offset: _m32): _m64` | 64bit読み込み |
+| `__builtin_mem_write8(ptr: _m32, offset: _m32, value: _m32): void` | 8bit書き込み |
+| `__builtin_mem_write16(ptr: _m32, offset: _m32, value: _m32): void` | 16bit書き込み |
 | `__builtin_mem_write32(ptr: _m32, offset: _m32, value: _m32): void` | 32bit書き込み |
-| `__builtin_mem_read64(ptr: _m64, offset: _m64): _m64` | 64bit読み込み |
-| `__builtin_mem_write64(ptr: _m64, offset: _m64, value: _m64): void` | 64bit書き込み |
+| `__builtin_mem_write64(ptr: _m32, offset: _m32, value: _m64): void` | 64bit書き込み |
 | `__builtin_zeroinit(): _m32` | ゼロ初期化 |
 
 ### 9.5 単項演算命令

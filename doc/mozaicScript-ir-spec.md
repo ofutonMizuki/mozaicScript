@@ -31,7 +31,7 @@
 |----------|-----------|
 | 宣言 | `ImportDecl`, `ClassDecl`, `FunctionDecl`, `VarDecl`, `TypeAliasDecl` |
 | 式 | `MethodCall`, `NewExpr`, `Identifier`, `Intrinsic`, `Assign`, `MemberAccess` |
-| 文 | `IfStmt`, `ElseStmt`, `WhileStmt`, `ForStmt`, `ReturnStmt`, `BreakStmt` |
+| 文 | `IfStmt`, `ElseStmt`, `WhileStmt`, `ForStmt`, `ReturnStmt`, `BreakStmt`, `BlockStmt` |
 | リテラル | `RawLiteral` |
 | スレッド | `ThreadSpawn`, `ThreadJoin` |
 | スレッドプール | `ThreadPoolCreate`, `ThreadPoolSubmit`, `ThreadPoolWait`, `ThreadPoolDestroy` |
@@ -352,6 +352,17 @@
 
 ```json
 { "type": "BreakStmt" }
+```
+
+### BlockStmt
+
+裸ブロック `{ ... }` によって導入されるスコープを表すノード。`body` 内で宣言された変数は当該ブロックに閉じたスコープを持つ。
+
+```json
+{
+    "type": "BlockStmt",
+    "body": [...]
+}
 ```
 
 ### マルチスレッドノード
