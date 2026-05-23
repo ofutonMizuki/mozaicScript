@@ -740,6 +740,10 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 return node.name;
 
             case "RawLiteral":
+                if (node.kind === "float") {
+                    const flit = Number.isInteger(node.value) ? `${node.value}.0f` : `${node.value}f`;
+                    return `_ms_f32_bits(${flit})`;
+                }
                 return `(int32_t)${node.value}`;
 
             case "MemberAccess": {
@@ -778,6 +782,12 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         subst: Map<string, string>,
     ): string {
         const recvType = applySubst((node.receiver as any).resolvedType ?? "void", subst);
+
+        // _m32/_m64 はプリミティブ生値 — getBits() は恒等操作なので直接返す
+        if ((recvType === "_m32" || recvType === "_m64") && node.method === "getBits") {
+            return this.flattenExpr(node.receiver, pre, subst);
+        }
+
         const recvAddr = this.flattenToAddr(node.receiver, recvType, pre, subst);
         const argExprs = node.args.map(a => this.flattenExpr(a, pre, subst));
 

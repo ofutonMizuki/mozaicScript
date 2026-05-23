@@ -440,7 +440,7 @@ export class JSCodegen {
         const { ptr, length } = this.arrayFields();
         return `\
 /* ── mozaicScript JS runtime ── */
-const _ms_heap = new Int32Array(1 << 20); // 4 MiWord heap
+const _ms_heap = new Int32Array(1 << 24); // 64 MiWord heap
 let _ms_heap_next = 1;
 function _ms_malloc(n_bytes) {
     const a = _ms_heap_next;
@@ -649,8 +649,16 @@ function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }
                 // プリミティブラッパー → bare number
                 const w = this.isWrapper(resolvedType);
                 if (w) {
-                    if (node.args.length === 0) return coerce("0", w.bits);
+                    if (node.args.length === 0) {
+                        // f32/f64 はゼロを float として返す
+                        if (resolvedType === "f32") return "Math.fround(0)";
+                        if (resolvedType === "f64") return "(+0)";
+                        return coerce("0", w.bits);
+                    }
                     const arg = this.emitExpr(node.args[0], pre, typeEnv, subst);
+                    // f32/f64 は Math.fround/+ を使い |0 を回避
+                    if (resolvedType === "f32") return `Math.fround(${arg})`;
+                    if (resolvedType === "f64") return `(+(${arg}))`;
                     return coerce(arg, w.bits);
                 }
 
@@ -669,6 +677,10 @@ function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }
                     (node.receiver as any).resolvedType ?? this.typeOf(node.receiver, typeEnv),
                     subst
                 );
+                // _m32/_m64 はプリミティブ生値 — getBits() は恒等操作なので直接返す
+                if ((recvType === "_m32" || recvType === "_m64") && node.method === "getBits") {
+                    return this.emitExpr(node.receiver, pre, typeEnv, subst);
+                }
                 const recv = this.emitExpr(node.receiver, pre, typeEnv, subst);
                 const args = node.args.map(a => this.emitExpr(a, pre, typeEnv, subst));
                 const fn = jsFnName(recvType, node.method);
