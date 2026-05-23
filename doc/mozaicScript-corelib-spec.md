@@ -48,18 +48,17 @@ type string = Array<char>;
 | `i64` | 符号あり64bit整数（ビットボード演算等に必須） |
 | `u64` | 符号なし64bit整数（ビットボード演算等に必須） |
 | `f64` | 64bit浮動小数点数（IEEE 754、MLP学習に必須） |
-| `Exception` | エラー情報 |
 | `Result<T>` | エラーハンドリングコンテナ |
 | `Option<T>` | オプショナル値コンテナ |
 | `Array<T>` | ジェネリクス配列 |
-| `Ptr<T>` | ポインタ |
-| `Stdout` | 標準出力 |
-| `Stderr` | 標準エラー出力 |
-| `Stdin` | 標準入力 |
+
+必須グローバル関数（`print`, `eprint`, `readLine`, `panic`, スレッド関連）は §6 に記述する。
 
 ---
 
 ## 5. 必須メソッド仕様
+
+各プリミティブ型は内部表現として `mocp public let bits: _mNN` フィールドを持つ（`_m32` 型は 32bit、`_m64` 型は 64bit）。このフィールドは `.moc` ファイル内からのみアクセス可能であり、`.moz` ユーザーコードからは利用不可。
 
 ### 5.1 `boolean`
 
@@ -69,7 +68,8 @@ type string = Array<char>;
 | `operator\|\|(other: boolean): boolean` | 論理OR |
 | `operator&&(other: boolean): boolean` | 論理AND |
 | `operatorNot(): boolean` | 論理NOT |
-| `getBits(): _m32` | 内部表現取得（`mocp public`） |
+
+`mocp public let bits: _m32` — 内部表現フィールド（`.moc` 内専用）
 
 ### 5.2 `i32`
 
@@ -83,35 +83,79 @@ type string = Array<char>;
 | `operator==(other: i32): boolean` | 等価比較 |
 | `operator<(other: i32): boolean` | 小なり |
 | `operator>(other: i32): boolean` | 大なり |
-| `toF32(): f32` | f32へ変換 |
+| `negate(): i32` | 符号反転（単項マイナス） |
+| `clz(): i32` | 先頭ゼロビット数 |
+| `ctz(): i32` | 末尾ゼロビット数 |
+| `popcnt(): i32` | 1ビット数 |
+| `rotl(shift: i32): i32` | 左回転 |
+| `rotr(shift: i32): i32` | 右回転 |
+| `shl(shift: i32): i32` | 論理左シフト |
+| `shr(shift: i32): i32` | 算術右シフト |
 | `toU32(): u32` | u32へ変換 |
-| `operatorNeg(): i32` | 単項マイナス |
-| `getBits(): _m32` | 内部表現取得（`mocp public`） |
+| `toI64(): i64` | i64へ変換（符号拡張） |
+| `toF32(): f32` | f32へ変換 |
+| `toF64(): f64` | f64へ変換 |
+
+`mocp public let bits: _m32` — 内部表現フィールド
 
 ### 5.3 `u32`
 
-`i32` と同一のメソッド一覧（**ただし `operatorNeg()` を除く**）。内部の組み込み命令のみ符号なし版を使用する。`operatorNeg()` は符号なし整数に対して定義されない（`__builtin_u32_neg` は存在しない）。
+符号なし整数のため `negate()` は定義されない。シフト命令は論理シフト（符号なし）を使用する。
 
-| 追加メソッド | 説明 |
-|-------------|------|
-| `toF32(): f32` | f32へ変換 |
+| メソッド | 説明 |
+|----------|------|
+| `operator+(other: u32): u32` | 加算 |
+| `operator-(other: u32): u32` | 減算 |
+| `operator*(other: u32): u32` | 乗算 |
+| `operator/(other: u32): u32` | 除算 |
+| `operator%(other: u32): u32` | 剰余 |
+| `operator==(other: u32): boolean` | 等価比較 |
+| `operator<(other: u32): boolean` | 小なり |
+| `operator>(other: u32): boolean` | 大なり |
+| `shl(shift: u32): u32` | 論理左シフト |
+| `shr(shift: u32): u32` | 論理右シフト |
 | `toI32(): i32` | i32へ変換 |
-| `getBits(): _m32` | 内部表現取得（`mocp public`） |
+| `toU64(): u64` | u64へ変換（ゼロ拡張） |
+| `toF32(): f32` | f32へ変換 |
+| `toF64(): f64` | f64へ変換 |
+
+`mocp public let bits: _m32` — 内部表現フィールド
 
 ### 5.4 `f32`
 
-`i32` と同一のメソッド一覧。内部の組み込み命令のみ浮動小数点版を使用する。浮動小数点数の等価比較（`==`）はIEEE 754の仕様に従う。
-
-| 追加メソッド | 説明 |
-|-------------|------|
+| メソッド | 説明 |
+|----------|------|
+| `operator+(other: f32): f32` | 加算 |
+| `operator-(other: f32): f32` | 減算 |
+| `operator*(other: f32): f32` | 乗算 |
+| `operator/(other: f32): f32` | 除算 |
+| `operator==(other: f32): boolean` | 等価比較（IEEE 754準拠） |
+| `operator<(other: f32): boolean` | 小なり |
+| `operator>(other: f32): boolean` | 大なり |
+| `negate(): f32` | 符号反転 |
+| `abs(): f32` | 絶対値 |
+| `sqrt(): f32` | 平方根 |
+| `floor(): f32` | 切り捨て（負の無限大方向） |
+| `ceil(): f32` | 切り上げ（正の無限大方向） |
+| `trunc(): f32` | ゼロ方向への切り捨て |
+| `nearest(): f32` | 最近接偶数丸め |
+| `min(other: f32): f32` | 小さい方 |
+| `max(other: f32): f32` | 大きい方 |
+| `sin(): f32` | 正弦（ラジアン） |
+| `cos(): f32` | 余弦（ラジアン） |
+| `tan(): f32` | 正接（ラジアン） |
+| `exp(): f32` | 指数関数（e^x） |
+| `log(): f32` | 自然対数 |
+| `pow(exponent: f32): f32` | 累乗 |
+| `atan(): f32` | 逆正接 |
+| `atan2(x: f32): f32` | 2引数逆正接 |
 | `toI32(): i32` | i32へ変換（小数点以下切り捨て） |
 | `toU32(): u32` | u32へ変換（小数点以下切り捨て） |
-| `operatorNeg(): f32` | 単項マイナス |
-| `getBits(): _m32` | 内部表現取得（`mocp public`） |
+| `toF64(): f64` | f64へ変換（精度拡張） |
+
+`mocp public let bits: _m32` — 内部表現フィールド
 
 ### 5.5 `i64`
-
-`i32` と同一のメソッド構成。内部の組み込み命令は `__builtin_i64_*` 系を使用する。
 
 | メソッド | 説明 |
 |----------|------|
@@ -123,14 +167,20 @@ type string = Array<char>;
 | `operator==(other: i64): boolean` | 等価比較 |
 | `operator<(other: i64): boolean` | 小なり |
 | `operator>(other: i64): boolean` | 大なり |
-| `operatorNeg(): i64` | 単項マイナス |
+| `negate(): i64` | 符号反転 |
+| `clz(): i64` | 先頭ゼロビット数 |
+| `popcnt(): i64` | 1ビット数 |
+| `rotl(shift: i64): i64` | 左回転 |
+| `shl(shift: i64): i64` | 論理左シフト |
+| `shr(shift: i64): i64` | 算術右シフト |
 | `toI32(): i32` | i32へ変換（下位32bit） |
 | `toF64(): f64` | f64へ変換 |
-| `getBits(): _m64` | 内部表現取得（`mocp public`） |
+
+`mocp public let bits: _m64` — 内部表現フィールド
 
 ### 5.6 `u64`
 
-`i64` と同一のメソッド構成（**ただし `operatorNeg()` を除く**）。内部の組み込み命令は `__builtin_u64_*` 系を使用する。
+符号なし整数のため `negate()` は定義されない。シフト命令は論理シフトを使用する。
 
 | メソッド | 説明 |
 |----------|------|
@@ -142,13 +192,14 @@ type string = Array<char>;
 | `operator==(other: u64): boolean` | 等価比較 |
 | `operator<(other: u64): boolean` | 小なり |
 | `operator>(other: u64): boolean` | 大なり |
+| `shl(shift: u64): u64` | 論理左シフト |
+| `shr(shift: u64): u64` | 論理右シフト |
 | `toU32(): u32` | u32へ変換（下位32bit） |
 | `toF64(): f64` | f64へ変換 |
-| `getBits(): _m64` | 内部表現取得（`mocp public`） |
+
+`mocp public let bits: _m64` — 内部表現フィールド
 
 ### 5.7 `f64`
-
-`f32` と同一のメソッド構成。内部の組み込み命令は `__builtin_f64_*` 系を使用する。
 
 | メソッド | 説明 |
 |----------|------|
@@ -160,272 +211,130 @@ type string = Array<char>;
 | `operator==(other: f64): boolean` | 等価比較（IEEE 754準拠） |
 | `operator<(other: f64): boolean` | 小なり |
 | `operator>(other: f64): boolean` | 大なり |
-| `operatorNeg(): f64` | 単項マイナス |
+| `negate(): f64` | 符号反転 |
+| `abs(): f64` | 絶対値 |
+| `sqrt(): f64` | 平方根 |
+| `floor(): f64` | 切り捨て |
+| `ceil(): f64` | 切り上げ |
+| `trunc(): f64` | ゼロ方向切り捨て |
+| `nearest(): f64` | 最近接偶数丸め |
+| `min(other: f64): f64` | 小さい方 |
+| `max(other: f64): f64` | 大きい方 |
+| `sin(): f64` | 正弦 |
+| `cos(): f64` | 余弦 |
+| `exp(): f64` | 指数関数 |
+| `log(): f64` | 自然対数 |
+| `pow(exponent: f64): f64` | 累乗 |
+| `atan2(x: f64): f64` | 2引数逆正接 |
 | `toI64(): i64` | i64へ変換（切り捨て） |
 | `toF32(): f32` | f32へ変換（精度縮小） |
-| `getBits(): _m64` | 内部表現取得（`mocp public`） |
 
-### 5.8 `Exception`
+`mocp public let bits: _m64` — 内部表現フィールド
 
-| メンバ | 説明 |
-|--------|------|
-| `message: string` | エラーメッセージ（`public` フィールド） |
-
-### 5.9 `Result<T>`
+### 5.8 `Result<T>`
 
 | メソッド | 説明 |
 |----------|------|
-| `unwrap(): T` | 成功時の値を取り出す（失敗時はパニック） |
 | `isOk(): boolean` | 成功かどうかを確認する |
-| `getError(): Exception` | 失敗時のエラーを取り出す（成功時の挙動は実装依存） |
+| `isErr(): boolean` | 失敗かどうかを確認する |
+| `unwrap(): T` | 成功時の値を取り出す（失敗時はパニック） |
+| `unwrapErr(): string` | 失敗時のエラーメッセージを取り出す（成功時はパニック） |
 
 **コンストラクタ：**
 ```typescript
-new Result<T>(success: boolean, val: T, err: Exception)
+new Result<T>(success: boolean, val: T, err: string)
 ```
 
-### 5.10 `Option<T>`
+`success = TRUE` → Ok(val)（`err` は空文字列 `""`）  
+`success = FALSE` → Err(err)（`val` はダミー値）
+
+### 5.9 `Option<T>`
 
 `some` / `none` 状態はコンストラクタで生成する。
 
 ```typescript
 // some 相当（値あり）
-new Option<i32>(new boolean(true), new i32(42));
+new Option<T>(TRUE, someValue);
 
 // none 相当（値なし）
-new Option<i32>(new boolean(false), __builtin_zeroinit());
+new Option<T>(FALSE, dummyValue);
 ```
 
 | メソッド | 説明 |
 |----------|------|
 | `isSome(): boolean` | 値があるかどうかを確認する |
+| `isNone(): boolean` | 値がないかどうかを確認する |
 | `unwrap(): T` | 値を取り出す（値なし時はパニック） |
 
-### 5.11 `Array<T>`
+### 5.10 `Array<T>`
 
-| メソッド | 説明 |
-|----------|------|
-| `operator[](index: i32): T` | インデックス参照 |
-| `operator_set[](index: i32, value: T): void` | インデックス代入 |
-| `length` | 要素数（`public` フィールド） |
-| `copy(): Array<T>` | シャローコピー（内部ポインタを共有） |
-| `clone(): Array<T>` | ディープコピー（新しいメモリに値をコピー） |
+| メンバ / メソッド | 説明 |
+|------------------|------|
+| `public let length: u32` | 要素数フィールド |
+| `operator[](index: u32): T` | インデックス参照 |
+| `operator_set[](index: u32, value: T): void` | インデックス代入 |
 | `free(): void` | メモリ解放 |
-| `getPtr(): _m32` | 内部ポインタ取得（`mocp public`） |
 
-### 5.12 `Ptr<T>`
-
-ヌルポインタはアドレス `0` として表現される。
-
-| メソッド | 説明 |
-|----------|------|
-| `deref(): T` | ポインタが指す値を取得 |
-| `write(val: T): void` | ポインタが指す先に値を書き込む |
-| `isNull(): boolean` | ヌルポインタかどうか確認 |
-| `free(): void` | メモリ解放 |
-| `getAddr(): _m32` | アドレス取得（`mocp public`） |
-
-### 5.13 `Stdout` / `Stderr`
-
-| メソッド | 説明 |
-|----------|------|
-| `write(s: string): void` | 文字列を出力 |
-| `writeLine(s: string): void` | 文字列を出力して改行 |
-
-### 5.14 `Stdin`
-
-| メソッド | 説明 |
-|----------|------|
-| `readLine(): string` | 1行読み込む |
+**コンストラクタ：**
+```typescript
+new Array<T>(size: u32)
+```
 
 ---
 
-## 6. 実装例
+## 6. 必須グローバル関数
 
-```typescript
-// boolean クラス
-public class boolean {
-    private let bits: _m32;
-    public constructor(raw: _m32) { this.bits = raw; }
+### 6.1 標準 I/O
 
-    mocp public function getBits(): _m32 { return this.bits; }
+| 関数 | 説明 |
+|------|------|
+| `print(s: string): void` | 標準出力へ文字列を出力 |
+| `eprint(s: string): void` | 標準エラーへ文字列を出力 |
+| `readLine(): string` | 標準入力から1行読み込む |
+| `panic(msg: string): void` | エラーメッセージを出力してプロセスを終了する |
 
-    public operator==(other: boolean): boolean {
-        return new boolean(__builtin_i32_eq(this.getBits(), other.getBits()));
-    }
-    public operator||(other: boolean): boolean {
-        return new boolean(__builtin_i32_or(this.getBits(), other.getBits()));
-    }
-    public operator&&(other: boolean): boolean {
-        return new boolean(__builtin_i32_and(this.getBits(), other.getBits()));
-    }
-    public operatorNot(): boolean {
-        return new boolean(__builtin_i32_not(this.getBits()));
-    }
-}
+### 6.2 スレッド管理
 
-// i32 クラス
-public class i32 {
-    private let bits: _m32;
-    public constructor(raw: _m32) { this.bits = raw; }
+| 関数 | 説明 |
+|------|------|
+| `threadSpawn(fnName: string): u64` | 名前付き関数を新しいスレッドで起動する |
+| `threadJoin(id: u64): void` | スレッドの終了を待機する |
 
-    mocp public function getBits(): _m32 { return this.bits; }
+### 6.3 スレッドプール
 
-    public operator+(other: i32): i32 {
-        return new i32(__builtin_i32_add(this.getBits(), other.getBits()));
-    }
-    public operator-(other: i32): i32 {
-        return new i32(__builtin_i32_sub(this.getBits(), other.getBits()));
-    }
-    public operator*(other: i32): i32 {
-        return new i32(__builtin_i32_mul(this.getBits(), other.getBits()));
-    }
-    public operator/(other: i32): i32 {
-        return new i32(__builtin_i32_div(this.getBits(), other.getBits()));
-    }
-    public operator%(other: i32): i32 {
-        return new i32(__builtin_i32_mod(this.getBits(), other.getBits()));
-    }
-    public operator==(other: i32): boolean {
-        return new boolean(__builtin_i32_eq(this.getBits(), other.getBits()));
-    }
-    public operator<(other: i32): boolean {
-        return new boolean(__builtin_i32_lt(this.getBits(), other.getBits()));
-    }
-    public operator>(other: i32): boolean {
-        return new boolean(__builtin_i32_gt(this.getBits(), other.getBits()));
-    }
-    public function toF32(): f32 {
-        return new f32(__builtin_i32_to_f32(this.getBits()));
-    }
-    public function toU32(): u32 {
-        return new u32(__builtin_i32_to_u32(this.getBits()));
-    }
-}
+| 関数 | 説明 |
+|------|------|
+| `threadpoolCreate(size: u32): u64` | 指定サイズのスレッドプールを作成する |
+| `threadpoolSubmit(pool: u64, fnName: string): void` | タスクを投入する |
+| `threadpoolWait(pool: u64): void` | すべてのタスクの完了を待機する |
+| `threadpoolDestroy(pool: u64): void` | スレッドプールを破棄する |
 
-// 型エイリアス
-type char = u32;
-type string = Array<char>;
+### 6.4 ミューテックス
 
-// Exception クラス
-public class Exception {
-    public let message: string;
-    public constructor(msg: string) { this.message = msg; }
-}
+| 関数 | 説明 |
+|------|------|
+| `mutexCreate(): u64` | ミューテックスを作成する |
+| `mutexLock(m: u64): void` | ロックを取得する |
+| `mutexUnlock(m: u64): void` | ロックを解放する |
 
-// Result<T> クラス
-public class Result<T> {
-    private let isSuccess: boolean;
-    private let value: T;
-    private let error: Exception;
+### 6.5 条件変数
 
-    public constructor(success: boolean, val: T, err: Exception) {
-        this.isSuccess = success;
-        this.value = val;
-        this.error = err;
-    }
+| 関数 | 説明 |
+|------|------|
+| `condvarCreate(): u64` | 条件変数を作成する |
+| `condvarWait(cv: u64, mutex: u64): void` | 条件変数を待機する |
+| `condvarSignal(cv: u64): void` | 待機中のスレッドを1つ起こす |
+| `condvarBroadcast(cv: u64): void` | 待機中のスレッドをすべて起こす |
 
-    public function unwrap(): T {
-        if (this.isSuccess == new boolean(false)) {
-            __builtin_panic("Fatal: Tried to unwrap an Error Result.");
-        }
-        return this.value;
-    }
-    public function isOk(): boolean { return this.isSuccess; }
-    public function getError(): Exception { return this.error; }
-}
+### 6.6 アトミック操作
 
-// Option<T> クラス
-public class Option<T> {
-    private let hasValue: boolean;
-    private let value: T;
-
-    public constructor(has: boolean, val: T) {
-        this.hasValue = has;
-        this.value = val;
-    }
-
-    public function isSome(): boolean { return this.hasValue; }
-    public function unwrap(): T {
-        if (this.hasValue == new boolean(false)) {
-            __builtin_panic("Fatal: Tried to unwrap a None Option.");
-        }
-        return this.value;
-    }
-}
-
-// Array<T> クラス
-public class Array<T> {
-    private let ptr: _m32;
-    public let length: i32;
-
-    public constructor(size: i32) {
-        this.length = size;
-        // 注意：正確には size * sizeof<T>() バイトを確保する必要があるが、
-        // 本参考実装では簡略化のため size * 4 バイト（全型4バイト固定）で確保する。
-        // 実際の実装では __builtin_sizeof<T>() を使用すること。
-        this.ptr = __builtin_malloc(__builtin_i32_mul(size.getBits(), __builtin_sizeof<i32>()));
-    }
-
-    mocp public function getPtr(): _m32 { return this.ptr; }
-
-    // 注意：本参考実装は __builtin_mem_read32 / __builtin_mem_write32 を使用しているため
-    // T が 32bit 以外のサイズを持つ型の場合は正しく動作しない。
-    // 実際の実装では T のサイズに応じた読み書き命令を使用すること。
-    public operator[](index: i32): T {
-        return __builtin_mem_read32(this.ptr, __builtin_i32_mul(index.getBits(), __builtin_sizeof<i32>()));
-    }
-    public operator_set[](index: i32, value: T): void {
-        __builtin_mem_write32(this.ptr, __builtin_i32_mul(index.getBits(), __builtin_sizeof<i32>()), value);
-    }
-    public function free(): void { __builtin_free(this.ptr); }
-}
-
-// Ptr<T> クラス
-public class Ptr<T> {
-    private let addr: _m32;
-    public constructor(raw: _m32) { this.addr = raw; }
-
-    mocp public function getAddr(): _m32 { return this.addr; }
-
-    public function deref(): T {
-        return __builtin_mem_read32(this.addr, new u32(0).getBits());
-    }
-    public function write(val: T): void {
-        __builtin_mem_write32(this.addr, new u32(0).getBits(), val);
-    }
-    public function isNull(): boolean {
-        return new boolean(__builtin_u32_eq(this.addr, new u32(0).getBits()));
-    }
-    public function free(): void { __builtin_free(this.addr); }
-}
-
-// Stdout クラス
-public class Stdout {
-    public constructor() {}
-    public function write(s: string): void { __builtin_stdout_write(s); }
-    public function writeLine(s: string): void {
-        __builtin_stdout_write(s);
-        __builtin_stdout_write("\n");
-    }
-}
-
-// Stderr クラス
-public class Stderr {
-    public constructor() {}
-    public function write(s: string): void { __builtin_stderr_write(s); }
-    public function writeLine(s: string): void {
-        __builtin_stderr_write(s);
-        __builtin_stderr_write("\n");
-    }
-}
-
-// Stdin クラス
-public class Stdin {
-    public constructor() {}
-    public function readLine(): string { return __builtin_stdin_readline(); }
-}
-```
+| 関数 | 説明 |
+|------|------|
+| `atomicLoad(ptr: u32): u32` | アトミックにロードする |
+| `atomicStore(ptr: u32, val: u32): void` | アトミックにストアする |
+| `atomicCas(ptr: u32, expected: u32, desired: u32): u32` | Compare-And-Swap |
+| `atomicFetchAdd(ptr: u32, val: u32): u32` | アトミック加算（加算前の値を返す） |
+| `atomicFetchSub(ptr: u32, val: u32): u32` | アトミック減算（減算前の値を返す） |
 
 ---
 

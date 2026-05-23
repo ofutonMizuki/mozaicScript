@@ -112,8 +112,19 @@ export class CCodegen {
         const cls = this.classes.get("Array");
         if (!cls) return { ptr: "ptr", len: "len" };
         const ptrF = cls.members.find(m => m.resolvedType === "_m32" && m.access === "private");
+        // length field may be _m32 (legacy) or a wrapper type (u32 etc.) with a bits field
         const lenF = cls.members.find(m => m !== ptrF && m.resolvedType === "_m32");
-        return { ptr: ptrF?.name ?? "ptr", len: lenF?.name ?? "len" };
+        if (lenF) return { ptr: ptrF?.name ?? "ptr", len: lenF.name };
+        // wrapper: find a field whose class has a single `bits` machine-type field
+        const wrapF = cls.members.find(m => {
+            if (m === ptrF) return false;
+            const wc = this.classes.get(baseType(m.resolvedType));
+            if (!wc) return false;
+            const bf = wc.members.find(f => f.name === "bits");
+            return bf !== undefined && (bf.resolvedType === "_m32" || bf.resolvedType === "_m64");
+        });
+        if (wrapF) return { ptr: ptrF?.name ?? "ptr", len: `${wrapF.name}.bits` };
+        return { ptr: ptrF?.name ?? "ptr", len: "len" };
     }
 
     private static readonly MACHINE_TYPES = new Set(["_m8","_m16","_m32","_m64","_m128","_m256","_m512"]);
@@ -277,6 +288,7 @@ export class CCodegen {
         parts.push(this.emitStructDefs(hasImports));
         parts.push(this.emitFunctionProtos());
         parts.push(this.emitAllFunctions());
+        parts.push(this.emitCallByName());
         parts.push(this.emitMain());
         const body = parts.filter(p => p.trim()).join("\n\n");
 
@@ -376,6 +388,140 @@ static int64_t _ms_malloc64(int64_t size_bytes) {
 static void _ms_write_str(int32_t ptr, int32_t len);
 static void _ms_write_str_err(int32_t ptr, int32_t len);
 static void _ms_panic_str(int32_t ptr, int32_t len);
+
+/* ── Thread support (pthreads) ── */
+#include <pthread.h>
+
+/* Function lookup dispatch — set by main() before calling _ms_main() */
+typedef void (*_ms_fn_ptr_t)(void);
+static _ms_fn_ptr_t (*_ms_fn_lookup)(int32_t ptr, int32_t len) = NULL;
+
+static void _ms_call_by_name(int32_t ptr, int32_t len) {
+    if (!_ms_fn_lookup) return;
+    _ms_fn_ptr_t fn = _ms_fn_lookup(ptr, len);
+    if (fn) fn();
+}
+
+/* ── Thread spawn / join ── */
+typedef struct { int32_t ptr; int32_t len; } _ms_thr_arg_t;
+#define _MS_THR_CAP 1024
+static pthread_t _ms_thr_tab[_MS_THR_CAP];
+static int64_t _ms_thr_next = 1;
+static pthread_mutex_t _ms_thr_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static void* _ms_thr_fn(void* raw) {
+    _ms_thr_arg_t a = *(_ms_thr_arg_t*)raw; free(raw);
+    _ms_call_by_name(a.ptr, a.len);
+    return NULL;
+}
+static int64_t _ms_thread_spawn(int32_t ptr, int32_t len) {
+    _ms_thr_arg_t* a = (_ms_thr_arg_t*)malloc(sizeof(_ms_thr_arg_t));
+    a->ptr = ptr; a->len = len;
+    pthread_mutex_lock(&_ms_thr_mu);
+    int64_t id = _ms_thr_next++;
+    pthread_create(&_ms_thr_tab[id % _MS_THR_CAP], NULL, _ms_thr_fn, a);
+    pthread_mutex_unlock(&_ms_thr_mu);
+    return id;
+}
+static void _ms_thread_join(int64_t id) {
+    pthread_join(_ms_thr_tab[id % _MS_THR_CAP], NULL);
+}
+
+/* ── Thread pool ── */
+#define _MS_TP_CAP 256
+typedef struct {
+    _ms_fn_ptr_t* q; int head, tail, qcap;
+    int nworkers, ndone, active;
+    pthread_t* thr;
+    pthread_mutex_t mu;
+    pthread_cond_t cv_work, cv_idle;
+} _ms_tp_t;
+static _ms_tp_t* _ms_tp_tab[_MS_TP_CAP];
+static int64_t _ms_tp_next = 1;
+
+static void* _ms_tp_worker(void* arg) {
+    _ms_tp_t* tp = (_ms_tp_t*)arg;
+    for (;;) {
+        pthread_mutex_lock(&tp->mu);
+        while (tp->head == tp->tail && !tp->ndone)
+            pthread_cond_wait(&tp->cv_work, &tp->mu);
+        if (tp->ndone && tp->head == tp->tail)
+            { pthread_mutex_unlock(&tp->mu); return NULL; }
+        _ms_fn_ptr_t fn = tp->q[tp->head++ % tp->qcap];
+        tp->active++;
+        pthread_mutex_unlock(&tp->mu);
+        fn();
+        pthread_mutex_lock(&tp->mu);
+        tp->active--;
+        if (!tp->active && tp->head == tp->tail)
+            pthread_cond_signal(&tp->cv_idle);
+        pthread_mutex_unlock(&tp->mu);
+    }
+}
+static int64_t _ms_tp_create(int32_t sz) {
+    _ms_tp_t* tp = (_ms_tp_t*)calloc(1, sizeof(_ms_tp_t));
+    tp->qcap = 4096;
+    tp->q = (_ms_fn_ptr_t*)malloc((size_t)tp->qcap * sizeof(_ms_fn_ptr_t));
+    tp->nworkers = (int)sz;
+    tp->thr = (pthread_t*)malloc((size_t)tp->nworkers * sizeof(pthread_t));
+    pthread_mutex_init(&tp->mu, NULL);
+    pthread_cond_init(&tp->cv_work, NULL);
+    pthread_cond_init(&tp->cv_idle, NULL);
+    int64_t id = _ms_tp_next++;
+    _ms_tp_tab[id % _MS_TP_CAP] = tp;
+    for (int i = 0; i < tp->nworkers; i++)
+        pthread_create(&tp->thr[i], NULL, _ms_tp_worker, tp);
+    return id;
+}
+static void _ms_tp_submit(int64_t pid, int32_t ptr, int32_t len) {
+    _ms_tp_t* tp = _ms_tp_tab[pid % _MS_TP_CAP]; if (!tp) return;
+    _ms_fn_ptr_t fn = _ms_fn_lookup ? _ms_fn_lookup(ptr, len) : NULL; if (!fn) return;
+    pthread_mutex_lock(&tp->mu);
+    tp->q[tp->tail++ % tp->qcap] = fn;
+    pthread_cond_signal(&tp->cv_work);
+    pthread_mutex_unlock(&tp->mu);
+}
+static void _ms_tp_wait(int64_t pid) {
+    _ms_tp_t* tp = _ms_tp_tab[pid % _MS_TP_CAP]; if (!tp) return;
+    pthread_mutex_lock(&tp->mu);
+    while (tp->active || tp->head != tp->tail)
+        pthread_cond_wait(&tp->cv_idle, &tp->mu);
+    pthread_mutex_unlock(&tp->mu);
+}
+static void _ms_tp_destroy(int64_t pid) {
+    _ms_tp_t* tp = _ms_tp_tab[pid % _MS_TP_CAP]; if (!tp) return;
+    pthread_mutex_lock(&tp->mu); tp->ndone = 1;
+    pthread_cond_broadcast(&tp->cv_work); pthread_mutex_unlock(&tp->mu);
+    for (int i = 0; i < tp->nworkers; i++) pthread_join(tp->thr[i], NULL);
+    pthread_mutex_destroy(&tp->mu);
+    pthread_cond_destroy(&tp->cv_work); pthread_cond_destroy(&tp->cv_idle);
+    free(tp->q); free(tp->thr); free(tp);
+    _ms_tp_tab[pid % _MS_TP_CAP] = NULL;
+}
+
+/* ── Mutex / CondVar ── */
+#define _MS_SYNC_CAP 1024
+static pthread_mutex_t* _ms_mu_tab[_MS_SYNC_CAP];
+static pthread_cond_t*  _ms_cv_tab[_MS_SYNC_CAP];
+static int64_t _ms_mu_next = 1, _ms_cv_next = 1;
+
+static int64_t _ms_mutex_create(void) {
+    int64_t id = _ms_mu_next++;
+    pthread_mutex_t* m = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
+    pthread_mutex_init(m, NULL); _ms_mu_tab[id % _MS_SYNC_CAP] = m; return id;
+}
+static void _ms_mutex_lock  (int64_t id) { pthread_mutex_lock  (_ms_mu_tab[id % _MS_SYNC_CAP]); }
+static void _ms_mutex_unlock(int64_t id) { pthread_mutex_unlock(_ms_mu_tab[id % _MS_SYNC_CAP]); }
+static int64_t _ms_condvar_create(void) {
+    int64_t id = _ms_cv_next++;
+    pthread_cond_t* c = (pthread_cond_t*)malloc(sizeof(pthread_cond_t));
+    pthread_cond_init(c, NULL); _ms_cv_tab[id % _MS_SYNC_CAP] = c; return id;
+}
+static void _ms_condvar_wait(int64_t cv, int64_t mu) {
+    pthread_cond_wait(_ms_cv_tab[cv % _MS_SYNC_CAP], _ms_mu_tab[mu % _MS_SYNC_CAP]);
+}
+static void _ms_condvar_signal   (int64_t cv) { pthread_cond_signal   (_ms_cv_tab[cv % _MS_SYNC_CAP]); }
+static void _ms_condvar_broadcast(int64_t cv) { pthread_cond_broadcast(_ms_cv_tab[cv % _MS_SYNC_CAP]); }
 `;
     }
 
@@ -677,11 +823,40 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         return `static ${retType} ${fnName}(${params.join(", ")}) {\n${bodyLines}\n}`;
     }
 
+    // ── 関数名レジストリ ──────────────────────────────────────────────────────
+
+    private emitCallByName(): string {
+        // Only the entry file (the one with main()) defines _ms_fn_lookup_impl.
+        // Library files (core.moc, geometry.moz, …) leave _ms_fn_lookup as NULL.
+        if (!this.functions.has("main")) return "";
+
+        // Collect all top-level void functions with no parameters across all loaded files.
+        const candidates: string[] = [];
+        for (const [name, fn] of this.functions) {
+            if (fn.typeParams.length > 0) continue;
+            if (fn.returnType !== "void") continue;
+            if (fn.params.length > 0) continue;
+            candidates.push(name);
+        }
+
+        const lines: string[] = ["/* ── Function name → pointer lookup (for thread spawn) ── */"];
+        lines.push(`static _ms_fn_ptr_t _ms_fn_lookup_impl(int32_t ptr, int32_t len) {`);
+        lines.push(`    char _n[256]; int32_t _l = len < 255 ? len : 255;`);
+        lines.push(`    for (int32_t _i = 0; _i < _l; _i++) _n[_i] = (char)(uint8_t)_ms_heap[ptr + _i];`);
+        lines.push(`    _n[_l] = '\\0';`);
+        for (const name of candidates) {
+            lines.push(`    if (strcmp(_n, "${name}") == 0) return _ms_${name};`);
+        }
+        lines.push(`    return NULL;`);
+        lines.push(`}`);
+        return lines.join("\n");
+    }
+
     // ── メイン ────────────────────────────────────────────────────────────────
 
     private emitMain(): string {
         if (!this.functions.has("main")) return "";
-        return `int main(void) {\n    _ms_main();\n    return 0;\n}`;
+        return `int main(void) {\n    _ms_fn_lookup = _ms_fn_lookup_impl;\n    _ms_main();\n    return 0;\n}`;
     }
 
     // ── ボディ生成 ────────────────────────────────────────────────────────────
@@ -1296,6 +1471,83 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             // sizeof
             case "__builtin_sizeof":
                 return `(int32_t)${this.computeSizeof(applySubst(node.targetType ?? "i32", subst))}`;
+
+            // ── スレッド ──────────────────────────────────────────────────────
+            case "__builtin_thread_spawn": {
+                // args[0] = fnName (Array<u32>), args[1] = emptyArgs
+                const { ptr: pF, len: lF } = this.arrayFields();
+                const fn0type = applySubst((node.args[0] as any).resolvedType ?? "Array<u32>", subst);
+                const fn0 = this.flattenExpr(node.args[0], pre, subst);
+                const fnV = this.maybeTemp(fn0, cStructName(fn0type), pre);
+                return `(int64_t)_ms_thread_spawn(${fnV}.${pF}, ${fnV}.${lF})`;
+            }
+            case "__builtin_thread_join": {
+                pre.push(`_ms_thread_join(${a(0)});`);
+                return "";
+            }
+            case "__builtin_threadpool_create":
+                return `(int64_t)_ms_tp_create(${a(0)})`;
+            case "__builtin_threadpool_submit": {
+                // args[0] = pool (_m64), args[1] = fnName (Array<u32>), args[2] = emptyArgs
+                const { ptr: pF, len: lF } = this.arrayFields();
+                const fn1type = applySubst((node.args[1] as any).resolvedType ?? "Array<u32>", subst);
+                const fn1 = this.flattenExpr(node.args[1], pre, subst);
+                const fnV = this.maybeTemp(fn1, cStructName(fn1type), pre);
+                pre.push(`_ms_tp_submit(${a(0)}, ${fnV}.${pF}, ${fnV}.${lF});`);
+                return "";
+            }
+            case "__builtin_threadpool_wait": {
+                pre.push(`_ms_tp_wait(${a(0)});`);
+                return "";
+            }
+            case "__builtin_threadpool_destroy": {
+                pre.push(`_ms_tp_destroy(${a(0)});`);
+                return "";
+            }
+
+            // ── ミューテックス / 条件変数 ────────────────────────────────────
+            case "__builtin_mutex_create":
+                return `(int64_t)_ms_mutex_create()`;
+            case "__builtin_mutex_lock": {
+                pre.push(`_ms_mutex_lock(${a(0)});`);
+                return "";
+            }
+            case "__builtin_mutex_unlock": {
+                pre.push(`_ms_mutex_unlock(${a(0)});`);
+                return "";
+            }
+            case "__builtin_condvar_create":
+                return `(int64_t)_ms_condvar_create()`;
+            case "__builtin_condvar_wait": {
+                pre.push(`_ms_condvar_wait(${a(0)}, ${a(1)});`);
+                return "";
+            }
+            case "__builtin_condvar_signal": {
+                pre.push(`_ms_condvar_signal(${a(0)});`);
+                return "";
+            }
+            case "__builtin_condvar_broadcast": {
+                pre.push(`_ms_condvar_broadcast(${a(0)});`);
+                return "";
+            }
+
+            // ── アトミック操作 ────────────────────────────────────────────────
+            case "__builtin_atomic_load":
+                return `(int32_t)__atomic_load_n(&_ms_heap[(int32_t)(${a(0)})], __ATOMIC_SEQ_CST)`;
+            case "__builtin_atomic_store": {
+                pre.push(`__atomic_store_n(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST);`);
+                return "";
+            }
+            case "__builtin_atomic_cas": {
+                const tmp = this.nextTmp();
+                pre.push(`int32_t ${tmp} = (int32_t)(${a(1)});`);
+                pre.push(`__atomic_compare_exchange_n(&_ms_heap[(int32_t)(${a(0)})], &${tmp}, (int32_t)(${a(2)}), 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);`);
+                return tmp;
+            }
+            case "__builtin_atomic_fetch_add":
+                return `(int32_t)__atomic_fetch_add(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST)`;
+            case "__builtin_atomic_fetch_sub":
+                return `(int32_t)__atomic_fetch_sub(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST)`;
 
             default:
                 return `(int32_t)0 /* unknown builtin: ${node.name} */`;
