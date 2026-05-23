@@ -276,8 +276,8 @@ export class Evaluator {
         if (node.elements !== undefined) {
             const classDef = this.classes.get("Array");
             if (!classDef) throw new Error("Unknown class: Array (core library not loaded)");
-            const lenClassDef = this.classes.get("i32");
-            if (!lenClassDef) throw new Error("Unknown class: i32 (core library not loaded)");
+            const lenClassDef = this.classes.get("u32");
+            if (!lenClassDef) throw new Error("Unknown class: u32 (core library not loaded)");
 
             const fields: Record<string, RuntimeValue> = Object.create(null);
             for (const field of classDef.members) fields[field.name] = primitive(0);
@@ -285,7 +285,7 @@ export class Evaluator {
             const lenFields: Record<string, RuntimeValue> = Object.create(null);
             lenFields["bits"] = primitive(node.elements.length);
             const lenInstance: ObjectValue = {
-                kind: "object", className: "i32", fields: lenFields, classDef: lenClassDef,
+                kind: "object", className: "u32", fields: lenFields, classDef: lenClassDef,
             };
             fields["length"] = lenInstance;
 
