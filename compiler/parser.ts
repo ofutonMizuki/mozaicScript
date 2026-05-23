@@ -69,8 +69,14 @@ class Parser {
         const name = this.peek();
         if (name.kind !== 'ident') this.error(`Expected type name but got '${name.kind}'`);
         this.advance();
+        let typeName = name.value;
+        // 名前空間付き型: Geo.Vec2 など
+        while (this.at('.') && this.tokens[this.pos + 1]?.kind === 'ident') {
+            this.advance(); // '.'
+            typeName = typeName + '.' + this.eatIdent().value;
+        }
         const args = this.tryParseTypeArgs() ?? [];
-        return { name: name.value, args };
+        return { name: typeName, args };
     }
 
     // '<' TypeArg (',' TypeArg)* '>' をパース。失敗したら null を返しバックトラック
@@ -309,6 +315,12 @@ class Parser {
             return { kind: 'break', pos };
         }
 
+        // 裸ブロック { ... }
+        if (this.at('{')) {
+            const body = this.parseBlock();
+            return { kind: 'block', body, pos };
+        }
+
         // if
         if (this.at('if')) return this.parseIfStmt();
 
@@ -502,10 +514,14 @@ class Parser {
                 // メソッド呼び出し
                 if (this.at('(') || this.at('<')) {
                     const typeArgs = this.tryParseTypeArgs() ?? [];
-                    this.eat('(');
-                    const args = this.parseArgList();
-                    this.eat(')');
-                    expr = { kind: 'methodcall', obj: expr, method: member, typeArgs, args, pos };
+                    if (this.at('(')) {
+                        this.eat('(');
+                        const args = this.parseArgList();
+                        this.eat(')');
+                        expr = { kind: 'methodcall', obj: expr, method: member, typeArgs, args, pos };
+                    } else {
+                        expr = { kind: 'member', obj: expr, member, pos };
+                    }
                 } else {
                     expr = { kind: 'member', obj: expr, member, pos };
                 }

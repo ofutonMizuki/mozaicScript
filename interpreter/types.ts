@@ -17,6 +17,7 @@ export type ASTNode =
     | ForStmt
     | ReturnStmt
     | BreakStmt
+    | BlockStmt
     | RawLiteral
     | MemberAccess
     | ThreadSpawn
@@ -158,6 +159,11 @@ export interface ReturnStmt {
 
 export interface BreakStmt {
     type: "BreakStmt";
+}
+
+export interface BlockStmt {
+    type: "BlockStmt";
+    body: ASTNode[];
 }
 
 export interface RawLiteral {

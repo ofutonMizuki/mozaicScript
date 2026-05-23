@@ -39,7 +39,7 @@ export interface PBoolLit        { kind: 'boollit';    value: boolean; pos: Pos;
 export type PStmt =
     | PVarDecl | PAssignStmt | PExprStmt
     | PIfStmt | PWhileStmt | PForStmt
-    | PReturnStmt | PBreakStmt;
+    | PReturnStmt | PBreakStmt | PBlockStmt;
 
 export interface PVarDecl    { kind: 'vardecl';  mut: boolean; name: string; type: PType; value: PExpr; pos: Pos; }
 export interface PAssignStmt { kind: 'assign';   target: PExpr; value: PExpr; pos: Pos; }
@@ -49,6 +49,7 @@ export interface PWhileStmt  { kind: 'while';    cond: PExpr; body: PStmt[]; pos
 export interface PForStmt    { kind: 'for';      init: PVarDecl; cond: PExpr; update: PAssignStmt | PExprStmt; body: PStmt[]; pos: Pos; }
 export interface PReturnStmt { kind: 'return';   value: PExpr | null; pos: Pos; }
 export interface PBreakStmt  { kind: 'break';    pos: Pos; }
+export interface PBlockStmt  { kind: 'block';    body: PStmt[]; pos: Pos; }
 
 // ── クラスメンバー ─────────────────────────────────────────────────────────
 

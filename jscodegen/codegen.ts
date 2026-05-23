@@ -89,8 +89,8 @@ function jsFnName(mozType: string, method: string): string {
     return `_ms_${mangleName(base)}${suffix}__${m}`;
 }
 
-function jsTopFnName(name: string): string {
-    return `_top_${name}`;
+function jsTopFnName(name: string, concreteT?: string): string {
+    return concreteT ? `_top_${name}__${mangleName(baseType(concreteT))}` : `_top_${name}`;
 }
 
 // ── Intrinsic → JS 式テンプレート ────────────────────────────────────────────
@@ -200,6 +200,12 @@ const INTRINSIC_JS: Record<string, (...args: string[]) => string> = {
     "__builtin_i64_not": (a)    => `((${a})===0?1:0)`,
     "__builtin_i64_shl": (a, b) => `((${a})<<(${b}))`,
     "__builtin_i64_shr": (a, b) => `((${a})>>(${b}))`,
+    "__builtin_i64_clz":    (a)    => `Math.clz32(${a})`,
+    "__builtin_i64_ctz":    (a)    => `((${a}|0)===0?32:Math.clz32((${a})&-(${a})))`,
+    "__builtin_i64_popcnt": (a)    => `(()=>{let n=${a}|0,c=0;while(n){c+=n&1;n>>>=1;}return c;})()`,
+    "__builtin_i64_rotl":   (a, b) => `(((${a})<<(${b}))|((${a})>>>(32-(${b}))))`,
+    "__builtin_u64_shl":    (a, b) => `((${a})<<(${b}))`,
+    "__builtin_u64_shr":    (a, b) => `((${a})>>>(${b}))`,
     "__builtin_u64_add": (a, b) => `((${a})+(${b}))`,
     "__builtin_u64_sub": (a, b) => `((${a})-(${b}))`,
     "__builtin_u64_mul": (a, b) => `((${a})*(${b}))`,
@@ -266,6 +272,13 @@ const INTRINSIC_JS: Record<string, (...args: string[]) => string> = {
     "__builtin_condvar_wait":      () => `0`,
     "__builtin_condvar_signal":    () => `0`,
     "__builtin_condvar_broadcast": () => `0`,
+    // thread / threadpool (single-threaded stubs)
+    "__builtin_thread_spawn":          (fn, args) => `(_ms_thread_spawn(${fn},${args}))`,
+    "__builtin_thread_join":           (id)        => `(_ms_thread_join(${id}),0)`,
+    "__builtin_threadpool_create":     (sz)        => `(_ms_tp_create(${sz}))`,
+    "__builtin_threadpool_submit":     (p, fn, a)  => `(_ms_tp_submit(${p},${fn},${a}),0)`,
+    "__builtin_threadpool_wait":       (p)         => `(_ms_tp_wait(${p}),0)`,
+    "__builtin_threadpool_destroy":    (p)         => `(_ms_tp_destroy(${p}),0)`,
 };
 
 // sizeof マッピング (バイト数)
@@ -281,12 +294,15 @@ interface WrapperInfo {
 }
 
 export class JSCodegen {
-    private classes     = new Map<string, ClassDecl>();
-    private functions   = new Map<string, FunctionDecl>();
-    private wrappers    = new Map<string, WrapperInfo>();   // 検出済み wrapper
-    private genericInsts = new Set<string>();               // 具体型インスタンス (例: "Array<u32>")
-    private loadedFiles = new Set<string>();
-    private tmpCount    = 0;
+    private classes      = new Map<string, ClassDecl>();
+    private functions    = new Map<string, FunctionDecl>();
+    private globals      = new Map<string, ASTNode>();       // top-level VarDecl (name → value node)
+    private globalTypes  = new Map<string, string>();        // name → resolvedType
+    private wrappers     = new Map<string, WrapperInfo>();   // 検出済み wrapper
+    private genericInsts     = new Set<string>();            // 具体型インスタンス (例: "Array<u32>")
+    private genericFuncInsts = new Map<string, Set<string>>(); // generic func → concrete T types
+    private loadedFiles  = new Set<string>();
+    private tmpCount     = 0;
 
     // ── AST 読み込み ──────────────────────────────────────────────────────────
 
@@ -309,6 +325,9 @@ export class JSCodegen {
                 this.classes.set(node.name, node);
             } else if (node.type === "FunctionDecl") {
                 this.functions.set(node.name, node);
+            } else if (node.type === "VarDecl") {
+                this.globals.set(node.name, node.value);
+                this.globalTypes.set(node.name, node.resolvedType);
             }
         }
 
@@ -348,12 +367,26 @@ export class JSCodegen {
                 (node.args ?? []).forEach(a => this.scanNode(a, tp));
                 ((node as any).elements ?? []).forEach((e: ASTNode) => this.scanNode(e, tp));
                 break;
-            case "MethodCall":
+            case "MethodCall": {
                 this.collectType(node.resolvedType, tp);
                 this.collectType((node.receiver as any).resolvedType ?? "", tp);
                 this.scanNode(node.receiver, tp);
                 node.args.forEach(a => this.scanNode(a, tp));
+                // track generic top-level function instantiations
+                if (node.receiver.type === "Identifier") {
+                    const rname = (node.receiver as any).name as string;
+                    const simpleName = rname.includes(".") ? rname.slice(rname.lastIndexOf(".") + 1) : rname;
+                    const fn = this.functions.get(simpleName);
+                    if (fn && fn.typeParams.length > 0) {
+                        const concreteT = (node.receiver as any).resolvedType as string;
+                        if (concreteT && concreteT !== simpleName) {
+                            if (!this.genericFuncInsts.has(simpleName)) this.genericFuncInsts.set(simpleName, new Set());
+                            this.genericFuncInsts.get(simpleName)!.add(concreteT);
+                        }
+                    }
+                }
                 break;
+            }
             case "Intrinsic":
                 node.args.forEach(a => this.scanNode(a, tp));
                 break;
@@ -385,6 +418,9 @@ export class JSCodegen {
             case "ReturnStmt":
                 if (node.value) this.scanNode(node.value, tp);
                 break;
+            case "BlockStmt":
+                node.body.forEach(n => this.scanNode(n, tp));
+                break;
         }
     }
 
@@ -397,7 +433,8 @@ export class JSCodegen {
     private detectWrappers(): void {
         for (const [name, cls] of this.classes) {
             if (cls.typeParams.length > 0) continue; // ジェネリッククラスはスキップ
-            const privs = cls.members.filter(m => m.access === "private");
+            // "private" or "mocp public" (core lib internal) are both single-field markers
+            const privs = cls.members.filter(m => m.access === "private" || m.access === "mocp public");
             if (privs.length === 1 && privs[0].resolvedType.startsWith("_m")) {
                 this.wrappers.set(name, { field: privs[0].name, bits: privs[0].resolvedType });
             }
@@ -417,9 +454,40 @@ export class JSCodegen {
             this.emitRuntime(),
             this.emitAllClasses(),
             this.emitAllFunctions(),
+            this.emitFnRegistry(),
+            this.emitGlobals(),
             "_top_main();",
         ];
         return parts.filter(Boolean).join("\n\n");
+    }
+
+    private emitFnRegistry(): string {
+        const lines: string[] = [];
+        for (const [name, fn] of this.functions) {
+            if (fn.typeParams.length > 0) {
+                const insts = this.genericFuncInsts.get(name);
+                if (!insts) continue;
+                for (const concreteT of insts) {
+                    const jsName = jsTopFnName(name, concreteT);
+                    lines.push(`_ms_fn_registry[${JSON.stringify(name)}] = ${jsName};`);
+                }
+            } else {
+                lines.push(`_ms_fn_registry[${JSON.stringify(name)}] = ${jsTopFnName(name)};`);
+            }
+        }
+        return lines.join("\n");
+    }
+
+    private emitGlobals(): string {
+        const lines: string[] = [];
+        const typeEnv = new Map<string, string>();
+        for (const [name, valueNode] of this.globals) {
+            const pre: string[] = [];
+            const expr = this.emitExpr(valueNode, pre, typeEnv, new Map());
+            for (const s of pre) lines.push(s);
+            lines.push(`let _v_${name} = ${expr};`);
+        }
+        return lines.join("\n");
     }
 
     // ── Array クラスのフィールド名をクラス定義から読む ────────────────────────
@@ -459,7 +527,21 @@ function _ms_array_to_str(arr) {
 }
 function _ms_stdout_write(arr) { process.stdout.write(_ms_array_to_str(arr)); }
 function _ms_stderr_write(arr) { process.stderr.write(_ms_array_to_str(arr)); }
-function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }`;
+function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }
+// thread / threadpool stubs (single-threaded: run synchronously)
+// fn is a mozaicScript string (Array<u32>); look up in explicit registry
+const _ms_fn_registry = {};
+function _ms_call_by_name(fnName) { const f = _ms_fn_registry[_ms_array_to_str(fnName)]; if (f) f(); }
+const _ms_threads = new Map();
+let _ms_tid = 1;
+function _ms_thread_spawn(fn, _args) { const id = _ms_tid++; _ms_call_by_name(fn); _ms_threads.set(id, null); return id; }
+function _ms_thread_join(id) { _ms_threads.delete(id); }
+const _ms_tpools = new Map();
+let _ms_tpid = 1;
+function _ms_tp_create(sz) { const id = _ms_tpid++; _ms_tpools.set(id, []); return id; }
+function _ms_tp_submit(p, fn, _args) { _ms_call_by_name(fn); }
+function _ms_tp_wait(p) {}
+function _ms_tp_destroy(p) { _ms_tpools.delete(p); }`;
     }
 
     // ── クラスメソッド出力 ────────────────────────────────────────────────────
@@ -467,10 +549,9 @@ function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }
     private emitAllClasses(): string {
         const parts: string[] = [];
 
-        // 非ジェネリッククラス
+        // 非ジェネリッククラス (wrapper クラスも bare-number 関数として emit)
         for (const [name, cls] of this.classes) {
             if (cls.typeParams.length > 0) continue;
-            if (this.wrappers.has(name)) continue; // wrapper はインライン処理のみ
             for (const method of cls.methods) {
                 parts.push(this.emitMethod(name, method, new Map()));
             }
@@ -511,15 +592,35 @@ function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }
     private emitAllFunctions(): string {
         const parts: string[] = [];
         for (const [name, fn] of this.functions) {
-            const fnName = jsTopFnName(name);
-            const typeEnv = new Map<string, string>();
-            const params: string[] = [];
-            for (const p of fn.params) {
-                typeEnv.set(p.name, p.resolvedType);
-                params.push(`_v_${p.name}`);
+            if (fn.typeParams.length > 0) {
+                // generic function: emit one concrete version per observed instantiation
+                const insts = this.genericFuncInsts.get(name);
+                if (!insts) continue;
+                for (const concreteT of insts) {
+                    const subst = new Map<string, string>();
+                    fn.typeParams.forEach(p => subst.set(p, concreteT));
+                    const fnName = jsTopFnName(name, concreteT);
+                    const typeEnv = new Map<string, string>();
+                    const params: string[] = [];
+                    for (const p of fn.params) {
+                        const t = applySubst(p.resolvedType, subst);
+                        typeEnv.set(p.name, t);
+                        params.push(`_v_${p.name}`);
+                    }
+                    const body = this.emitBody(fn.body, typeEnv, "  ", subst);
+                    parts.push(`function ${fnName}(${params.join(", ")}) {\n${body}\n}`);
+                }
+            } else {
+                const fnName = jsTopFnName(name);
+                const typeEnv = new Map<string, string>();
+                const params: string[] = [];
+                for (const p of fn.params) {
+                    typeEnv.set(p.name, p.resolvedType);
+                    params.push(`_v_${p.name}`);
+                }
+                const body = this.emitBody(fn.body, typeEnv, "  ", new Map());
+                parts.push(`function ${fnName}(${params.join(", ")}) {\n${body}\n}`);
             }
-            const body = this.emitBody(fn.body, typeEnv, "  ", new Map());
-            parts.push(`function ${fnName}(${params.join(", ")}) {\n${body}\n}`);
         }
         return parts.join("\n");
     }
@@ -608,6 +709,11 @@ function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }
             case "BreakStmt":
                 return "break;";
 
+            case "BlockStmt": {
+                const blockBody = this.emitBody(node.body, typeEnv, indent + "    ", subst);
+                return `{\n${blockBody}\n${indent}}`;
+            }
+
             default: {
                 // 式文 (Intrinsic, MethodCall, etc.)
                 const expr = this.emitExpr(node, pre, typeEnv, subst);
@@ -680,6 +786,22 @@ function _ms_panic(arr) { throw new Error("[PANIC] " + _ms_array_to_str(arr)); }
                 // _m32/_m64 はプリミティブ生値 — getBits() は恒等操作なので直接返す
                 if ((recvType === "_m32" || recvType === "_m64") && node.method === "getBits") {
                     return this.emitExpr(node.receiver, pre, typeEnv, subst);
+                }
+                // free function call: receiver is an Identifier matching a top-level function.
+                // Namespace-qualified names like "Geo.max" strip the prefix to look up "max".
+                if (node.receiver.type === "Identifier") {
+                    const recvName = (node.receiver as any).name as string;
+                    const simpleName = recvName.includes(".") ? recvName.slice(recvName.lastIndexOf(".") + 1) : recvName;
+                    const matchedFn = this.functions.get(simpleName);
+                    if (matchedFn) {
+                        const args = node.args.map(a => this.emitExpr(a, pre, typeEnv, subst));
+                        // for generic functions, derive concrete T from receiver's resolvedType
+                        let concreteT: string | undefined;
+                        if (matchedFn.typeParams.length > 0) {
+                            concreteT = applySubst((node.receiver as any).resolvedType ?? "", subst) || undefined;
+                        }
+                        return `${jsTopFnName(simpleName, concreteT)}(${args.join(", ")})`;
+                    }
                 }
                 const recv = this.emitExpr(node.receiver, pre, typeEnv, subst);
                 const args = node.args.map(a => this.emitExpr(a, pre, typeEnv, subst));

@@ -3,7 +3,7 @@ import * as nodePath from "path";
 import { ASTNode, ClassDecl, FunctionDecl, MozaicScriptAST } from "./types";
 import { RuntimeValue, ObjectValue, primitive, voidValue } from "./values";
 import { Environment } from "./environment";
-import { builtins, HeapManager, ThreadManager } from "./builtins";
+import { builtins, HeapManager, ThreadManager, runtimeValueToString } from "./builtins";
 
 export class Evaluator {
     private loadedFiles: Set<string> = new Set();
@@ -12,6 +12,7 @@ export class Evaluator {
     private functions: Map<string, FunctionDecl> = new Map();
     private globalEnv: Environment = new Environment();
     private currentFileExt: string = ".moc";
+    private currentTypeSubst: Map<string, string> = new Map();
 
     // Control-flow signals (replace throw/catch for return and break)
     private _hasRet   = false;
@@ -55,15 +56,28 @@ export class Evaluator {
 
         for (const node of ast.nodes) {
             if (node.type === "ClassDecl") {
-                const key = namespace ? `${namespace}.${node.name}` : node.name;
                 for (const method of node.methods) {
                     (method as any)._fileExt = fileExt;
                 }
-                this.classes.set(key, node);
+                if (namespace) {
+                    this.classes.set(`${namespace}.${node.name}`, node);
+                }
+                // シンプル名でも登録（NewExpr の resolvedType は名前空間なし）
+                this.classes.set(node.name, node);
             } else if (node.type === "FunctionDecl") {
-                const key = namespace ? `${namespace}.${node.name}` : node.name;
                 (node as any)._fileExt = fileExt;
-                this.functions.set(key, node);
+                if (namespace) {
+                    this.functions.set(`${namespace}.${node.name}`, node);
+                }
+                this.functions.set(node.name, node);
+            }
+        }
+
+        // トップレベル定数をグローバル環境に定義
+        for (const node of ast.nodes) {
+            if (node.type === "VarDecl") {
+                const val = this.eval(node.value, this.globalEnv);
+                this.globalEnv.define(node.name, val);
             }
         }
 
@@ -118,7 +132,8 @@ export class Evaluator {
             }
 
             case "NewExpr": {
-                return this.evalNewExpr(node, env);
+                const resolvedType = this.currentTypeSubst.get(node.resolvedType) ?? node.resolvedType;
+                return this.evalNewExpr(resolvedType === node.resolvedType ? node : { ...node, resolvedType }, env);
             }
 
             case "MethodCall": {
@@ -152,6 +167,15 @@ export class Evaluator {
 
             case "BreakStmt": {
                 this._hasBreak = true;
+                return voidValue();
+            }
+
+            case "BlockStmt": {
+                const blockEnv = env.extend();
+                for (const stmt of node.body) {
+                    this.eval(stmt, blockEnv);
+                    if (this._hasRet || this._hasBreak) break;
+                }
                 return voidValue();
             }
 
@@ -299,8 +323,34 @@ export class Evaluator {
     }
 
     private evalMethodCall(node: any, env: Environment): RuntimeValue {
+        // 自由関数呼び出し: receiver が関数識別子の場合
+        if (node.receiver.type === "Identifier") {
+            const fn = this.functions.get(node.receiver.name);
+            if (fn) {
+                const args = this.evalArgs(node.args, env);
+                return this.callFunction(fn, args, env);
+            }
+        }
+
         const receiver = this.eval(node.receiver, env) as ObjectValue;
         const args = this.evalArgs(node.args, env);
+
+        // Array<T> のリファレンス型要素への特別対応
+        if (receiver.className.startsWith('Array<') && (node.method === 'operator[]' || node.method === 'operator_set[]')) {
+            const elemType = receiver.className.slice(6, receiver.className.lastIndexOf('>'));
+            const primTypes = new Set(['i32','u32','f32','f64','i64','u64','boolean','char','_m32','_m64']);
+            if (!primTypes.has(elemType)) {
+                const refStore: RuntimeValue[] = (receiver as any)._refStore ?? ((receiver as any)._refStore = []);
+                const idxObj = args[0] as any;
+                const idx = idxObj.fields?.bits?.value ?? idxObj.value ?? 0;
+                if (node.method === 'operator_set[]') {
+                    refStore[idx] = args[1];
+                    return voidValue();
+                } else {
+                    return refStore[idx] ?? voidValue();
+                }
+            }
+        }
 
         const method = receiver.classDef.methods.find(m => m.name === node.method);
         if (!method) {
@@ -313,7 +363,21 @@ export class Evaluator {
             );
         }
 
-        return this.callFunction(method, args, env, receiver);
+        // ジェネリッククラスのメソッド呼び出し時に型パラメータ置換を設定
+        const prevSubst = this.currentTypeSubst;
+        const lt = receiver.className.indexOf('<');
+        if (lt !== -1 && receiver.classDef.typeParams.length > 0) {
+            const inner = receiver.className.slice(lt + 1, receiver.className.lastIndexOf('>'));
+            const typeArgs = inner.split(',').map(s => s.trim());
+            const subst = new Map<string, string>();
+            receiver.classDef.typeParams.forEach((tp, i) => {
+                if (typeArgs[i]) subst.set(tp, typeArgs[i]);
+            });
+            this.currentTypeSubst = subst;
+        }
+        const result = this.callFunction(method, args, env, receiver);
+        this.currentTypeSubst = prevSubst;
+        return result;
     }
 
     private evalIntrinsic(node: any, env: Environment): RuntimeValue {
@@ -327,6 +391,38 @@ export class Evaluator {
 
         if (node.name === "__builtin_sizeof") {
             return this.evalSizeof(node.targetType ?? "i32");
+        }
+
+        // スレッド・スレッドプール系のビルトイン
+        if (node.name === "__builtin_thread_spawn") {
+            const fnNameStr = runtimeValueToString(this.eval(node.args[0], env));
+            const id = ThreadManager.enqueue(fnNameStr, []);
+            return primitive(id);
+        }
+        if (node.name === "__builtin_thread_join") {
+            const id = (this.eval(node.args[0], env) as any).value as number;
+            ThreadManager.joinTask(id, (fnName, args) => this.callTopFunction(fnName, args));
+            return voidValue();
+        }
+        if (node.name === "__builtin_threadpool_create") {
+            const size = (this.eval(node.args[0], env) as any).value as number;
+            return primitive(ThreadManager.createPool(size));
+        }
+        if (node.name === "__builtin_threadpool_submit") {
+            const poolId = (this.eval(node.args[0], env) as any).value as number;
+            const fnNameStr = runtimeValueToString(this.eval(node.args[1], env));
+            ThreadManager.submitToPool(poolId, fnNameStr, []);
+            return voidValue();
+        }
+        if (node.name === "__builtin_threadpool_wait") {
+            const poolId = (this.eval(node.args[0], env) as any).value as number;
+            ThreadManager.waitPool(poolId, (fnName, args) => this.callTopFunction(fnName, args));
+            return voidValue();
+        }
+        if (node.name === "__builtin_threadpool_destroy") {
+            const poolId = (this.eval(node.args[0], env) as any).value as number;
+            ThreadManager.destroyPool(poolId);
+            return voidValue();
         }
 
         const fn = builtins[node.name];

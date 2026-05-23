@@ -165,10 +165,12 @@ export interface Registry {
     classEnv:    Map<string, IR.ClassDecl>;
     funcEnv:     Map<string, IR.FunctionDecl>;
     typeAliases: Map<string, string>;
+    globalEnv:   Map<string, { type: string; mut: boolean }>;
+    namespaces:  Set<string>;
 }
 
 export function emptyRegistry(): Registry {
-    return { classEnv: new Map(), funcEnv: new Map(), typeAliases: new Map() };
+    return { classEnv: new Map(), funcEnv: new Map(), typeAliases: new Map(), globalEnv: new Map(), namespaces: new Set() };
 }
 
 // ── 検査コンテキスト ──────────────────────────────────────────────────────────
@@ -208,9 +210,20 @@ export class Checker {
 
     private registerDecl(decl: A.PTopLevelDecl, isMoc: boolean): void {
         switch (decl.kind) {
+            case 'import': {
+                if (decl.namespace !== null) {
+                    this.reg.namespaces.add(decl.namespace);
+                }
+                break;
+            }
             case 'typealias': {
                 const resolved = this.resolveType(decl.type, isMoc);
                 this.reg.typeAliases.set(decl.name, resolved);
+                break;
+            }
+            case 'vardecl': {
+                const rt = this.resolveType(decl.type, isMoc);
+                this.reg.globalEnv.set(decl.name, { type: rt, mut: decl.mut });
                 break;
             }
             case 'class': {
@@ -462,6 +475,9 @@ export class Checker {
 
             case 'break':
                 return { type: 'BreakStmt' };
+
+            case 'block':
+                return { type: 'BlockStmt', body: this.checkBody(stmt.body, ctx) };
         }
     }
 
@@ -478,6 +494,10 @@ export class Checker {
                 const fn = this.reg.funcEnv.get(expr.name);
                 if (fn) {
                     return { type: 'Identifier', name: expr.name, resolvedType: fn.returnType };
+                }
+                const global = this.reg.globalEnv.get(expr.name);
+                if (global) {
+                    return { type: 'Identifier', name: expr.name, resolvedType: global.type };
                 }
                 throw new CheckError(`未定義の識別子 '${expr.name}'`, expr.pos);
             }
@@ -527,6 +547,10 @@ export class Checker {
                     return { type: 'MethodCall', resolvedType: rt, receiver: operand, method: 'operatorNot', args: [] };
                 }
                 if (expr.op === '-') {
+                    // リテラルコンテキスト内の負数リテラル: RawLiteral を直接否定
+                    if (operand.type === 'RawLiteral') {
+                        return { type: 'RawLiteral', kind: operand.kind, value: -(operand as any).value };
+                    }
                     const rt = this.methodReturnType(recvType, 'operatorNeg');
                     return { type: 'MethodCall', resolvedType: rt, receiver: operand, method: 'operatorNeg', args: [] };
                 }
@@ -598,6 +622,23 @@ export class Checker {
             }
 
             case 'methodcall': {
+                // 名前空間付き関数呼び出し: Geo.max<i32>(...)
+                if (expr.obj.kind === 'ident' && this.reg.namespaces.has(expr.obj.name)) {
+                    const fn = this.reg.funcEnv.get(expr.method);
+                    if (!fn) throw new CheckError(`未知の関数 '${expr.obj.name}.${expr.method}'`, expr.pos);
+                    const subst = new Map<string, string>();
+                    fn.typeParams.forEach((tp, i) => {
+                        if (expr.typeArgs[i]) subst.set(tp, this.resolveType(expr.typeArgs[i], ctx.isMoc));
+                    });
+                    const rt = applySubst(fn.returnType, subst);
+                    const args = expr.args.map(a => this.checkExpr(a, ctx));
+                    const qualifiedName = `${expr.obj.name}.${expr.method}`;
+                    return {
+                        type: 'MethodCall', resolvedType: rt,
+                        receiver: { type: 'Identifier', name: qualifiedName, resolvedType: rt },
+                        method: qualifiedName, args,
+                    };
+                }
                 const obj = this.checkExpr(expr.obj, ctx);
                 const objType = resolvedType(obj);
                 const args = expr.args.map(a => this.checkExpr(a, ctx));
@@ -625,12 +666,14 @@ export class Checker {
 
     resolveType(pt: A.PType, isMoc: boolean): string {
         const MOC_ONLY = ['_m8', '_m16', '_m32', '_m64', '_m128', '_m256', '_m512'];
-        if (MOC_ONLY.includes(pt.name) && !isMoc) {
-            throw new CheckError(`型 '${pt.name}' は .moc ファイル内でのみ使用可能`);
+        // 名前空間付き型名 (Geo.Vec2) → 単純名 (Vec2) に正規化
+        const simpleName = pt.name.includes('.') ? pt.name.slice(pt.name.lastIndexOf('.') + 1) : pt.name;
+        if (MOC_ONLY.includes(simpleName) && !isMoc) {
+            throw new CheckError(`型 '${simpleName}' は .moc ファイル内でのみ使用可能`);
         }
         if (pt.args.length === 0) {
             // エイリアス展開（連鎖対応）
-            let name = pt.name;
+            let name = simpleName;
             const seen = new Set<string>();
             while (this.reg.typeAliases.has(name) && !seen.has(name)) {
                 seen.add(name);
@@ -640,7 +683,7 @@ export class Checker {
         }
         // ジェネリクス型
         const resolvedArgs = pt.args.map(a => this.resolveType(a, isMoc));
-        return `${pt.name}<${resolvedArgs.join(',')}>`;
+        return `${simpleName}<${resolvedArgs.join(',')}>`;
     }
 
     // ── メソッド戻り型取得 ────────────────────────────────────────────────────
