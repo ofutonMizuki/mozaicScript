@@ -51,8 +51,13 @@ type string = Array<char>;
 | `Result<T>` | エラーハンドリングコンテナ |
 | `Option<T>` | オプショナル値コンテナ |
 | `Array<T>` | ジェネリクス配列 |
+| `Ptr<T>` | 型付きポインタ（低レベルメモリ操作、主に `.moc` 内部用） |
+| `Stdout` | 標準出力ハンドル |
+| `Stderr` | 標準エラーハンドル |
+| `Stdin` | 標準入力ハンドル |
 
 必須グローバル関数（`print`, `eprint`, `readLine`, `panic`, スレッド関連）は §6 に記述する。
+必須グローバル定数（`STDOUT`, `STDERR`, `STDIN`）は §6.7 に記述する。
 
 ---
 
@@ -280,6 +285,44 @@ new Option<T>(FALSE, dummyValue);
 new Array<T>(size: u32)
 ```
 
+### 5.11 `Ptr<T>`
+
+型付きポインタ。ヌルポインタはアドレス `0` として表現される。
+
+コンストラクタ引数に `_m32` を使用するため、直接インスタンス化は `.moc` ファイルからのみ可能。`.moz` コードはライブラリ関数が返す `Ptr<T>` を受け取って使用する。
+
+`T` は単一の `_m32`（または `_m64`）フィールドを持つクラスに限定される（`Array<T>` と同じ制約）。
+
+| メソッド | 説明 |
+|----------|------|
+| `deref(): T` | ポインタが指す値を読み取る |
+| `write(val: T): void` | ポインタが指す先に値を書き込む |
+| `isNull(): boolean` | ヌルポインタ（アドレス 0）かどうか確認 |
+| `free(): void` | ポインタが確保するメモリを解放 |
+
+`mocp public let addr: _m32` — 内部アドレスフィールド（`.moc` 内専用）
+
+### 5.12 `Stdout` / `Stderr`
+
+標準出力・標準エラーへの書き出しを行うクラス。グローバル定数 `STDOUT` / `STDERR`（§6.7）でアクセスする。
+
+| メソッド | 説明 |
+|----------|------|
+| `write(s: string): void` | 文字列を出力（改行なし） |
+| `writeLine(s: string): void` | 文字列を出力して末尾に改行を付加 |
+
+`mocp public let handle: _m32` — 内部ハンドル（`.moc` 内専用）
+
+### 5.13 `Stdin`
+
+標準入力から読み込むクラス。グローバル定数 `STDIN`（§6.7）でアクセスする。
+
+| メソッド | 説明 |
+|----------|------|
+| `readLine(): string` | 標準入力から 1 行読み込む（末尾の改行は含まない） |
+
+`mocp public let handle: _m32` — 内部ハンドル（`.moc` 内専用）
+
 ---
 
 ## 6. 必須グローバル関数
@@ -335,6 +378,14 @@ new Array<T>(size: u32)
 | `atomicCas(ptr: u32, expected: u32, desired: u32): u32` | Compare-And-Swap |
 | `atomicFetchAdd(ptr: u32, val: u32): u32` | アトミック加算（加算前の値を返す） |
 | `atomicFetchSub(ptr: u32, val: u32): u32` | アトミック減算（減算前の値を返す） |
+
+### 6.7 グローバル定数
+
+| 定数 | 型 | 説明 |
+|------|----|------|
+| `STDOUT` | `Stdout` | 標準出力シングルトン |
+| `STDERR` | `Stderr` | 標準エラーシングルトン |
+| `STDIN` | `Stdin` | 標準入力シングルトン |
 
 ---
 
