@@ -69,10 +69,15 @@ for t in "${TESTS[@]}"; do
     $TS jscodegen/index.ts "$src" "$WORK/bench/$t.js" >/dev/null 2>&1
     node "$WORK/bench/$t.js" >"$WORK/js.out" 2>"$WORK/jsruntime.err" || problems+="JS-CRASH "
 
+    # --- WASM backend (single self-contained module from -O2 ast) ---
+    $TS wasmcodegen/index.ts "$src" "$WORK/bench/$t.wasm" >/dev/null 2>"$WORK/wasmgen.err" || problems+="WASM-GEN-FAIL "
+    node wasmcodegen/run.js "$WORK/bench/$t.wasm" >"$WORK/wasm.out" 2>"$WORK/wasmruntime.err" || problems+="WASM-CRASH "
+
     # --- cross-backend agreement (reference = interpreter -O2) ---
     ref="$WORK/interp_O2.out"
-    diff -q "$ref" "$WORK/c.out"  >/dev/null 2>&1 || problems+="C!=INTERP "
-    diff -q "$ref" "$WORK/js.out" >/dev/null 2>&1 || problems+="JS!=INTERP "
+    diff -q "$ref" "$WORK/c.out"   >/dev/null 2>&1 || problems+="C!=INTERP "
+    diff -q "$ref" "$WORK/js.out"  >/dev/null 2>&1 || problems+="JS!=INTERP "
+    diff -q "$ref" "$WORK/wasm.out" >/dev/null 2>&1 || problems+="WASM!=INTERP "
 
     # --- golden snapshot ---
     gold="$GOLDEN/$t.out"
@@ -95,6 +100,11 @@ for t in "${TESTS[@]}"; do
         if ! diff -q "$ref" "$WORK/js.out" >/dev/null 2>&1; then
             echo "        --- interp(O2) vs JS ---"; diff "$ref" "$WORK/js.out" | sed 's/^/        /' | head -20
         fi
+        if ! diff -q "$ref" "$WORK/wasm.out" >/dev/null 2>&1; then
+            echo "        --- interp(O2) vs WASM ---"; diff "$ref" "$WORK/wasm.out" | sed 's/^/        /' | head -20
+        fi
+        [ -s "$WORK/wasmgen.err" ]     && { echo "        --- WASM gen stderr ---"; tail -3 "$WORK/wasmgen.err" | sed 's/^/        /'; }
+        [ -s "$WORK/wasmruntime.err" ] && { echo "        --- WASM runtime stderr ---"; tail -3 "$WORK/wasmruntime.err" | sed 's/^/        /'; }
         if ! diff -q "$WORK/interp_O0.out" "$WORK/interp_O2.out" >/dev/null 2>&1; then
             echo "        --- interp O0 vs O2 (optimizer) ---"; diff "$WORK/interp_O0.out" "$WORK/interp_O2.out" | sed 's/^/        /' | head -20
         fi
