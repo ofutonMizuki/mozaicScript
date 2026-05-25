@@ -1,0 +1,52 @@
+// ============================================================
+//  speed_mandelbrot.moz — 浮動小数点演算中心
+//  W×H グリッドで各点が集合内かを max_iter 反復で判定し、
+//  集合内の点数を出力。f32 は全バックエンドで fround 一致する想定。
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function main(): void {
+    const W: i32 = new i32(220);
+    const H: i32 = new i32(150);
+    const MAXIT: i32 = new i32(120);
+
+    const four: f32 = new f32(4.0);
+    let inside: i32 = new i32(0);
+
+    let py: i32 = new i32(0);
+    while (py < H) {
+        // y0 = (py / H) * 2.0 - 1.0  → [-1, 1)
+        const y0: f32 = py.toF32() / H.toF32() * new f32(2.0) - new f32(1.0);
+        let px: i32 = new i32(0);
+        while (px < W) {
+            // x0 = (px / W) * 3.0 - 2.0 → [-2, 1)
+            const x0: f32 = px.toF32() / W.toF32() * new f32(3.0) - new f32(2.0);
+
+            let zx: f32 = new f32(0.0);
+            let zy: f32 = new f32(0.0);
+            let it: i32 = new i32(0);
+            let escaped: boolean = new boolean(0);
+            while (it < MAXIT) {
+                const xx: f32 = zx * zx;
+                const yy: f32 = zy * zy;
+                if (xx + yy > four) {
+                    escaped = new boolean(1);
+                    break;
+                }
+                // z = z^2 + c
+                const nzy: f32 = new f32(2.0) * zx * zy + y0;
+                zx = xx - yy + x0;
+                zy = nzy;
+                it = it + new i32(1);
+            }
+            if (!escaped) {
+                inside = inside + new i32(1);
+            }
+            px = px + new i32(1);
+        }
+        py = py + new i32(1);
+    }
+
+    U.reportInt("mandelbrot inside pts", inside);
+}

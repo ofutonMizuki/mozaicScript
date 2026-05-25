@@ -1,0 +1,41 @@
+// ============================================================
+//  speed_primes.moz — 配列アクセス中心（エラトステネスの篩）
+//  N 未満の素数を数える。
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function main(): void {
+    // ヒープは可変長になったので旧 C 上限 (262144 ワード) を超えるサイズで篩う
+    const N: u32 = new u32(500000);
+    let sieve: Array<i32> = new Array<i32>(N);
+
+    // 0 = 素数候補, 1 = 合成数。0,1 を合成扱いに。
+    for (let i: u32 = new u32(0); i < N; i = i + new u32(1)) {
+        sieve[i] = new i32(0);
+    }
+    sieve[new u32(0)] = new i32(1);
+    sieve[new u32(1)] = new i32(1);
+
+    let p: u32 = new u32(2);
+    while (p * p < N) {
+        if (sieve[p] == new i32(0)) {
+            let m: u32 = p * p;
+            while (m < N) {
+                sieve[m] = new i32(1);
+                m = m + p;
+            }
+        }
+        p = p + new u32(1);
+    }
+
+    let count: i32 = new i32(0);
+    for (let i: u32 = new u32(2); i < N; i = i + new u32(1)) {
+        if (sieve[i] == new i32(0)) {
+            count = count + new i32(1);
+        }
+    }
+    U.reportInt("primes < 500000", count);   // 41538
+
+    sieve.free();
+}

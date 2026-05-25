@@ -1,0 +1,49 @@
+// ============================================================
+//  speed_matrix.moz — 配列添字計算が多い整数行列積
+//  N×N 整数行列 A,B を掛けて C を求め、対角和を出力。
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function lcg(state: u32): u32 {
+    return state * new u32(1664525) + new u32(1013904223);
+}
+
+public function main(): void {
+    const N: u32 = new u32(90);
+    const SZ: u32 = N * N;
+    let A: Array<i32> = new Array<i32>(SZ);
+    let B: Array<i32> = new Array<i32>(SZ);
+    let C: Array<i32> = new Array<i32>(SZ);
+
+    let s: u32 = new u32(7);
+    for (let i: u32 = new u32(0); i < SZ; i = i + new u32(1)) {
+        s = lcg(s);
+        A[i] = (s % new u32(10)).toI32();
+        s = lcg(s);
+        B[i] = (s % new u32(10)).toI32();
+        C[i] = new i32(0);
+    }
+
+    // C = A * B
+    for (let row: u32 = new u32(0); row < N; row = row + new u32(1)) {
+        for (let col: u32 = new u32(0); col < N; col = col + new u32(1)) {
+            let acc: i32 = new i32(0);
+            for (let k: u32 = new u32(0); k < N; k = k + new u32(1)) {
+                acc = acc + A[row * N + k] * B[k * N + col];
+            }
+            C[row * N + col] = acc;
+        }
+    }
+
+    // 対角和（トレース）
+    let trace: i32 = new i32(0);
+    for (let i: u32 = new u32(0); i < N; i = i + new u32(1)) {
+        trace = trace + C[i * N + i];
+    }
+    U.reportInt("matrix trace", trace);
+
+    A.free();
+    B.free();
+    C.free();
+}

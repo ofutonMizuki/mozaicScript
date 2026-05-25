@@ -71,7 +71,6 @@ const OP_MAP: Record<string, string> = {
     "operator||":     "op_or",
     "operator&&":     "op_and",
     "operatorNot":    "op_not",
-    "operatorNeg":    "op_neg",
     "operator[]":     "op_idx_get",
     "operator_set[]": "op_idx_set",
     "constructor":    "ctor",
@@ -114,7 +113,7 @@ const INTRINSIC_JS: Record<string, (...args: string[]) => string> = {
     "__builtin_i32_rotl": (a, b) => `(((${a}<<((${b})&31))|(${a}>>>((32-(${b}))&31)))|0)`,
     "__builtin_i32_rotr": (a, b) => `(((${a}>>>((${b})&31))|(${a}<<((32-(${b}))&31)))|0)`,
     "__builtin_i32_clz":    (a) => `Math.clz32(${a})`,
-    "__builtin_i32_ctz":    (a) => `((${a}|0)===0?32:Math.clz32((${a})&-(${a})))`,
+    "__builtin_i32_ctz":    (a) => `((${a}|0)===0?32:(31-Math.clz32((${a})&-(${a}))))`,
     "__builtin_i32_popcnt": (a) => `(()=>{let _x=(${a})>>>0;_x=_x-(_x>>>1&0x55555555);_x=(_x&0x33333333)+((_x>>>2)&0x33333333);_x=((_x+(_x>>>4))&0x0f0f0f0f);return((_x*0x01010101)>>>24)|0;})()`,
 
     // u32

@@ -1,0 +1,70 @@
+// ============================================================
+//  correct_control.moz — 制御構文の正当性テスト
+//  for / while / break / ネスト / if-elseif-else / <=,>= 脱糖
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function main(): void {
+    // --- for: 0..99 の和 ---
+    let sum: i32 = new i32(0);
+    for (let i: i32 = new i32(0); i < new i32(100); i = i + new i32(1)) {
+        sum = sum + i;
+    }
+    U.reportInt("sum 0..99", sum);   // 4950
+
+    // --- while + break: 2 の冪で 1000 を超えた最初の値 ---
+    let p: i32 = new i32(1);
+    while (new boolean(1)) {
+        p = p * new i32(2);
+        if (p > new i32(1000)) {
+            break;
+        }
+    }
+    U.reportInt("first pow2 >1000", p);   // 1024
+
+    // --- ネストループ: 九九の総和（break なし） ---
+    let mul: i32 = new i32(0);
+    for (let a: i32 = new i32(1); a < new i32(10); a = a + new i32(1)) {
+        for (let b: i32 = new i32(1); b < new i32(10); b = b + new i32(1)) {
+            mul = mul + a * b;
+        }
+    }
+    U.reportInt("sum of 9x9 table", mul);   // 2025
+
+    // --- ネストループ + 内側 break のみ ---
+    let cnt: i32 = new i32(0);
+    for (let x: i32 = new i32(0); x < new i32(5); x = x + new i32(1)) {
+        for (let y: i32 = new i32(0); y < new i32(5); y = y + new i32(1)) {
+            if (y == new i32(3)) {
+                break;     // 内側のみ終了 → 各 x で y=0,1,2 の 3 回
+            }
+            cnt = cnt + new i32(1);
+        }
+    }
+    U.reportInt("inner-break count", cnt);   // 5 * 3 = 15
+
+    // --- if / else if / else ---
+    let label: i32 = new i32(0);
+    const v: i32 = new i32(42);
+    if (v < new i32(10)) {
+        label = new i32(1);
+    } else if (v < new i32(50)) {
+        label = new i32(2);
+    } else {
+        label = new i32(3);
+    }
+    U.reportInt("elseif branch", label);   // 2
+
+    // --- <= と >= の脱糖 ---
+    let le: i32 = new i32(0);
+    for (let k: i32 = new i32(0); k <= new i32(10); k = k + new i32(1)) {
+        le = le + new i32(1);   // 0..10 → 11 回
+    }
+    U.reportInt("<= loop count", le);   // 11
+    U.reportBool("100 >= 100", new i32(100) > new i32(99) || new i32(100) == new i32(100)); // true
+
+    // --- && / || 短絡（結果値のみ確認） ---
+    U.reportBool("true && false", new boolean(1) && new boolean(0));  // false
+    U.reportBool("false || true", new boolean(0) || new boolean(1));  // true
+}

@@ -1,0 +1,17 @@
+// ============================================================
+//  speed_fib.moz — 関数呼び出しオーバーヘッド（素朴な再帰フィボナッチ）
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function fib(n: i32): i32 {
+    if (n < new i32(2)) {
+        return n;
+    }
+    return fib(n - new i32(1)) + fib(n - new i32(2));
+}
+
+public function main(): void {
+    const n: i32 = new i32(32);
+    U.reportInt("fib(32)", fib(n));   // 2178309
+}

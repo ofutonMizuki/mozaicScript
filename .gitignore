@@ -9,3 +9,9 @@ package-lock.json
 CLAUDE.md
 
 /dist
+
+# 生成された IR（コンパイラ出力。ソースではない）
+*.ast.json
+
+# ゴールデン期待値（回帰検査の基準。初回実行時に自動生成、ローカルのみ保持）
+bench/golden/

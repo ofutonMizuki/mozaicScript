@@ -19,7 +19,8 @@ export class Evaluator {
     private _retVal: RuntimeValue = voidValue();
     private _hasBreak = false;
 
-    // Pre-allocated args buffers indexed by call depth (user request: 配列の確保を事前に)
+    // Args buffers indexed by call depth (grows on demand so deep recursion
+    // does not overflow a fixed pool).
     private readonly _argsBufs: RuntimeValue[][] = Array.from({ length: 16 }, () => []);
     private _argsDepth = 0;
 
@@ -87,7 +88,9 @@ export class Evaluator {
 
     // Evaluate args into a reusable depth-keyed buffer (avoids .map() allocation per call)
     private evalArgs(nodes: ASTNode[], env: Environment): RuntimeValue[] {
-        const buf = this._argsBufs[this._argsDepth++];
+        let buf = this._argsBufs[this._argsDepth];
+        if (buf === undefined) buf = this._argsBufs[this._argsDepth] = [];
+        this._argsDepth++;
         const n = nodes.length;
         buf.length = n;
         for (let i = 0; i < n; i++) buf[i] = this.eval(nodes[i], env);

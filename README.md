@@ -50,6 +50,41 @@ npx ts-node interpreter/index.ts sample/main.moz.ast.json
 npm run build
 ```
 
+## ベンチマークとテスト
+
+`bench/` に回帰テストと速度ベンチが入っています。mozaicScript は同一の IR を **3 つの実行系**（ツリーウォーキング インタプリタ／C コード生成／JavaScript コード生成）で実行できるため、それらの**出力一致**と**速度**を検証します。生成物（`.ast.json` / `.c` / `.js` / バイナリ）は一時フォルダに出力され、`bench/` にはソースのみを置きます。
+
+### 回帰テスト
+
+```bash
+bash bench/run_tests.sh                 # 検査
+bash bench/run_tests.sh --update-golden # ゴールデン基準を更新
+```
+
+各 `correct_*.moz` について次を検査します。
+
+- **オプティマイザ不変性** — interpreter を `-O0/-O1/-O2` で実行して出力一致
+- **バックエンド間一致** — interpreter / C / JS の出力一致
+- **スナップショット回帰** — `bench/golden/`（初回自動生成・git 管理外）との比較
+
+### 速度ベンチ
+
+```bash
+bash bench/run_bench.sh
+```
+
+各ベンチ（`loopsum` / `fib` / `primes` / `collatz` / `matrix` / `mandelbrot`）を以下の実行系で計測し、チェックサム一致も確認します。`bench/native/` の手書きネイティブ実装と比較することで、生成コードのオーバーヘッドを把握できます。
+
+| 列 | 実行系 |
+|----|--------|
+| `interp` | ツリーウォーキング インタプリタ |
+| `moz-JS` | JS バックエンド生成コード（node） |
+| `nat-JS` | 手書きネイティブ JS（`bench/native/`） |
+| `mozC-O0` / `mozC-O2` | C バックエンド生成 + gcc -O0 / -O2 |
+| `natC-O0` / `natC-O2` | 手書きネイティブ C + gcc -O0 / -O2 |
+
+> `bench/util.moz` はコアに整数→文字列変換が無いため自作した `printInt` 等を提供し、各テスト/ベンチの結果出力に使われます。
+
 ## コードサンプル
 
 ```mozaic

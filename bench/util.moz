@@ -1,0 +1,83 @@
+// ============================================================
+//  util.moz — ベンチ/テスト共通ユーティリティ
+//
+//  コアライブラリには整数→文字列変換が無いため、
+//  結果を decimal 文字列として出力するヘルパーをここに実装する。
+//  これら自体も同一パイプラインを通るので、全バックエンドで
+//  挙動が一致する（= デグレ検出の基盤になる）。
+// ============================================================
+import "../sample/core.moc" as *;
+
+// i32 を 10 進文字列として出力（改行なし）。
+// 注意: i32 最小値 (-2147483648) は negate でオーバーフローするため
+//       ベンチでは入力に使わない。
+public function printInt(n: i32): void {
+    if (n == new i32(0)) {
+        print("0");
+    } else {
+        let negative: boolean = n < new i32(0);
+        let m: i32 = n;
+        if (negative) {
+            m = n.negate();
+        }
+
+        // 桁数を数える
+        let count: u32 = new u32(0);
+        let t: i32 = m;
+        while (t > new i32(0)) {
+            count = count + new u32(1);
+            t = t / new i32(10);
+        }
+
+        let len: u32 = count;
+        if (negative) {
+            len = len + new u32(1);
+        }
+
+        let buf: Array<u32> = new Array<u32>(len);
+
+        // 末尾から各桁を埋める（'0' = 48）
+        let pos: u32 = len;
+        let mm: i32 = m;
+        while (mm > new i32(0)) {
+            pos = pos - new u32(1);
+            let digit: i32 = mm % new i32(10);
+            buf[pos] = new u32(48) + digit.toU32();
+            mm = mm / new i32(10);
+        }
+        if (negative) {
+            buf[new u32(0)] = new u32(45);   // '-'
+        }
+
+        print(buf);
+        buf.free();
+    }
+}
+
+public function printlnInt(n: i32): void {
+    printInt(n);
+    print("\n");
+}
+
+// "ラベル = 値\n" 形式で出力（結果照合を読みやすくする）
+public function reportInt(label: string, n: i32): void {
+    print(label);
+    print(" = ");
+    printInt(n);
+    print("\n");
+}
+
+public function printBool(b: boolean): void {
+    if (b) {
+        print("true");
+    } else {
+        print("false");
+    }
+}
+
+public function reportBool(label: string, b: boolean): void {
+    print(label);
+    print(" = ");
+    printBool(b);
+    print("\n");
+}

@@ -1,0 +1,71 @@
+// ============================================================
+//  correct_array.moz — 配列・メモリ・ソートの正当性テスト
+//  Array<i32> の確保/書込/読出/解放、バブルソート、線形探索
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+// 決定的な擬似乱数（LCG, u32 で全バックエンド一致）
+public function lcg(state: u32): u32 {
+    return state * new u32(1664525) + new u32(1013904223);
+}
+
+public function main(): void {
+    const N: u32 = new u32(64);
+    let arr: Array<i32> = new Array<i32>(N);
+
+    // 充填: 0..999 の決定的な値
+    let s: u32 = new u32(12345);
+    for (let i: u32 = new u32(0); i < N; i = i + new u32(1)) {
+        s = lcg(s);
+        arr[i] = (s % new u32(1000)).toI32();
+    }
+
+    // 充填後の総和（順序不変）
+    let sumBefore: i32 = new i32(0);
+    for (let i: u32 = new u32(0); i < N; i = i + new u32(1)) {
+        sumBefore = sumBefore + arr[i];
+    }
+    U.reportInt("sum before sort", sumBefore);
+
+    // バブルソート（昇順）
+    for (let i: u32 = new u32(0); i < N; i = i + new u32(1)) {
+        for (let j: u32 = new u32(0); j < N - new u32(1); j = j + new u32(1)) {
+            if (arr[j] > arr[j + new u32(1)]) {
+                const tmp: i32 = arr[j];
+                arr[j] = arr[j + new u32(1)];
+                arr[j + new u32(1)] = tmp;
+            }
+        }
+    }
+
+    // ソート後の総和（不変であるべき）と端点
+    let sumAfter: i32 = new i32(0);
+    for (let i: u32 = new u32(0); i < N; i = i + new u32(1)) {
+        sumAfter = sumAfter + arr[i];
+    }
+    U.reportInt("sum after sort", sumAfter);   // == sum before
+    U.reportInt("min (arr[0])", arr[new u32(0)]);
+    U.reportInt("max (arr[N-1])", arr[N - new u32(1)]);
+
+    // 整列検証: 逆順ペア数（0 であるべき）
+    let inversions: i32 = new i32(0);
+    for (let i: u32 = new u32(0); i < N - new u32(1); i = i + new u32(1)) {
+        if (arr[i] > arr[i + new u32(1)]) {
+            inversions = inversions + new i32(1);
+        }
+    }
+    U.reportInt("inversions", inversions);   // 0
+
+    // 二分探索的でなく線形探索: 中央値を探す
+    const target: i32 = arr[N / new u32(2)];
+    let foundAt: i32 = new i32(-1);
+    for (let i: u32 = new u32(0); i < N; i = i + new u32(1)) {
+        if (arr[i] == target && foundAt < new i32(0)) {
+            foundAt = i.toI32();
+        }
+    }
+    U.reportBool("median found", foundAt > new i32(-1));   // true
+
+    arr.free();
+}

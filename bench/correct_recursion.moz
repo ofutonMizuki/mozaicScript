@@ -1,0 +1,62 @@
+// ============================================================
+//  correct_recursion.moz — 再帰の正当性テスト
+//  関数呼び出し・早期 return・相互再帰をカバー
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function factorial(n: i32): i32 {
+    if (n < new i32(2)) {
+        return new i32(1);
+    }
+    return n * factorial(n - new i32(1));
+}
+
+public function fib(n: i32): i32 {
+    if (n < new i32(2)) {
+        return n;
+    }
+    return fib(n - new i32(1)) + fib(n - new i32(2));
+}
+
+public function gcd(a: i32, b: i32): i32 {
+    if (b == new i32(0)) {
+        return a;
+    }
+    return gcd(b, a % b);
+}
+
+public function ackermann(m: i32, n: i32): i32 {
+    if (m == new i32(0)) {
+        return n + new i32(1);
+    }
+    if (n == new i32(0)) {
+        return ackermann(m - new i32(1), new i32(1));
+    }
+    return ackermann(m - new i32(1), ackermann(m, n - new i32(1)));
+}
+
+// 相互再帰
+public function isEven(n: i32): boolean {
+    if (n == new i32(0)) {
+        return new boolean(1);
+    }
+    return isOdd(n - new i32(1));
+}
+
+public function isOdd(n: i32): boolean {
+    if (n == new i32(0)) {
+        return new boolean(0);
+    }
+    return isEven(n - new i32(1));
+}
+
+public function main(): void {
+    U.reportInt("factorial(10)", factorial(new i32(10)));   // 3628800
+    U.reportInt("fib(20)", fib(new i32(20)));               // 6765
+    U.reportInt("gcd(1071,462)", gcd(new i32(1071), new i32(462))); // 21
+    U.reportInt("ackermann(2,3)", ackermann(new i32(2), new i32(3))); // 9
+    U.reportInt("ackermann(3,3)", ackermann(new i32(3), new i32(3))); // 61
+    U.reportBool("isEven(10)", isEven(new i32(10)));        // true
+    U.reportBool("isOdd(7)", isOdd(new i32(7)));            // true
+}

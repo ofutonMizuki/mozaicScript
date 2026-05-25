@@ -551,8 +551,15 @@ export class Checker {
                     if (operand.type === 'RawLiteral') {
                         return { type: 'RawLiteral', kind: operand.kind, value: -(operand as any).value };
                     }
-                    const rt = this.methodReturnType(recvType, 'operatorNeg');
-                    return { type: 'MethodCall', resolvedType: rt, receiver: operand, method: 'operatorNeg', args: [] };
+                    // 単項マイナスは negate() メソッドへ脱糖（§6.5）。
+                    // negate を持たない型（u32/u64 等）はここでコンパイルエラーにする
+                    const baseName = recvType.replace(/<.*>$/, '');
+                    const cls = this.reg.classEnv.get(baseName);
+                    if (!cls || !cls.methods.some(m => m.name === 'negate')) {
+                        throw new CheckError(`型 '${recvType}' は単項マイナス（negate メソッド）に対応していません`, expr.pos);
+                    }
+                    const rt = this.methodReturnType(recvType, 'negate');
+                    return { type: 'MethodCall', resolvedType: rt, receiver: operand, method: 'negate', args: [] };
                 }
                 throw new CheckError(`未知の単項演算子 '${expr.op}'`, expr.pos);
             }

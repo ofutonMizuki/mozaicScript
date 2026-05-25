@@ -1,0 +1,17 @@
+// ============================================================
+//  speed_loopsum.moz — タイトループ／整数演算ディスパッチ速度
+//  u32 を ITER 回加算（2^32 でラップ）。最終値を出力。
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function main(): void {
+    const ITER: u32 = new u32(5000000);
+    let sum: u32 = new u32(0);
+    let i: u32 = new u32(0);
+    while (i < ITER) {
+        sum = sum + i;
+        i = i + new u32(1);
+    }
+    U.reportInt("loopsum", sum.toI32());
+}

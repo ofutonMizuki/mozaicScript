@@ -106,7 +106,7 @@ export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
     ["__builtin_i32_rotl",   ([a, b]) => { const s = v(b) & 31; return primitive(((v(a) << s) | (v(a) >>> (32 - s))) | 0); }],
     ["__builtin_i32_rotr",   ([a, b]) => { const s = v(b) & 31; return primitive(((v(a) >>> s) | (v(a) << (32 - s))) | 0); }],
     ["__builtin_i32_clz",    ([a])    => primitive(Math.clz32(v(a)))],
-    ["__builtin_i32_ctz",    ([a])    => { const x = v(a) | 0; return primitive(x === 0 ? 32 : Math.clz32(x & -x)); }],
+    ["__builtin_i32_ctz",    ([a])    => { const x = v(a) | 0; return primitive(x === 0 ? 32 : 31 - Math.clz32(x & -x)); }],
     ["__builtin_i32_popcnt", ([a])    => {
         let x = v(a) >>> 0;
         x = x - ((x >>> 1) & 0x55555555);

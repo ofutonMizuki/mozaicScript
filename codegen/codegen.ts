@@ -55,7 +55,6 @@ const OPERATOR_MAP: Record<string, string> = {
     "operator||":       "op_or",
     "operator&&":       "op_and",
     "operatorNot":      "op_not",
-    "operatorNeg":      "op_neg",
     "operator[]":       "op_index_get",
     "operator_set[]":   "op_index_set",
     "constructor":      "constructor",
@@ -128,6 +127,39 @@ export class CCodegen {
     }
 
     private static readonly MACHINE_TYPES = new Set(["_m8","_m16","_m32","_m64","_m128","_m256","_m512"]);
+
+    // 参照型オブジェクトはヒープ確保しポインタ（=機械ポインタ幅）で受け渡す
+    private static readonly POINTER_SIZE = 8;
+
+    // 現在エミット中のクラス型（"this" を self ポインタとして出すか判定するため）
+    private curClassType = "";
+
+    // 型エイリアスを解決（char→u32, string→Array<u32> 等）
+    private resolveAlias(mozType: string): string {
+        let t = mozType;
+        const seen = new Set<string>();
+        while (this.typeAliases.has(t) && !seen.has(t)) { seen.add(t); t = this.typeAliases.get(t)!; }
+        return t;
+    }
+
+    // 参照型（ヒープ確保しポインタで扱うオブジェクト）か判定する。
+    // 単一の機械型フィールドを持つラッパー型（i32/u32/f32/boolean 等）と
+    // _mXX / void は値型として扱う。多フィールドのクラス（Vec2/Option/Result/Array 等）は参照型。
+    private isRef(mozType: string): boolean {
+        const t = this.resolveAlias(mozType);
+        if (t === "void" || CCodegen.MACHINE_TYPES.has(t)) return false;
+        const cls = this.classes.get(baseType(t));
+        if (!cls) return false;
+        if (cls.members.length === 1 &&
+            CCodegen.MACHINE_TYPES.has(this.resolveAlias(cls.members[0].resolvedType))) return false;
+        return true;
+    }
+
+    // mozaicScript 型 → C 型表記（参照型はポインタ）
+    private cType(mozType: string): string {
+        const t = this.resolveAlias(mozType);
+        return this.isRef(t) ? `${cStructName(t)}*` : cStructName(t);
+    }
 
     // ── AST 読み込み ──────────────────────────────────────────────────────────
 
@@ -318,14 +350,32 @@ export class CCodegen {
 #include <string.h>
 #include <math.h>
 
-/* ── Heap (word-addressed flat memory) ── */
-#define _MS_HEAP_WORDS (1 << 18)
-static int32_t _ms_heap[_MS_HEAP_WORDS];
-static int32_t _ms_heap_next = 1; /* 0 = null */
+/* ── Heap (word-addressed flat memory, grows on demand → effectively unbounded) ── */
+static int32_t* _ms_heap = NULL;
+static int32_t  _ms_heap_words = 0;
+static int32_t  _ms_heap_next = 1; /* 0 = null */
+
+/* Ensure the heap holds at least need_words words. Newly grown memory is
+   zero-filled so reads of never-written cells return 0 (matches the
+   interpreter / JS backends). */
+static void _ms_heap_ensure(int32_t need_words) {
+    if (need_words <= _ms_heap_words) return;
+    int32_t cap = _ms_heap_words ? _ms_heap_words : (1 << 18);
+    while (cap < need_words) {
+        int32_t doubled = cap << 1;
+        cap = (doubled > cap) ? doubled : need_words; /* guard against overflow */
+    }
+    int32_t* p = (int32_t*)realloc(_ms_heap, (size_t)cap * sizeof(int32_t));
+    if (!p) { fprintf(stderr, "mozaicScript: heap allocation failed (%d words)\\n", cap); exit(1); }
+    memset(p + _ms_heap_words, 0, (size_t)(cap - _ms_heap_words) * sizeof(int32_t));
+    _ms_heap = p;
+    _ms_heap_words = cap;
+}
 
 static int32_t _ms_malloc(int32_t size_bytes) {
     int32_t addr = _ms_heap_next;
     _ms_heap_next += (size_bytes + 3) / 4;
+    _ms_heap_ensure(_ms_heap_next);
     return addr;
 }
 static void _ms_free(int32_t addr) { (void)addr; }
@@ -553,7 +603,7 @@ static void _ms_condvar_broadcast(int64_t cv) { pthread_cond_broadcast(_ms_cv_ta
             if (isGenericInst) lines.push(`#ifndef ${guard}\n#define ${guard}`);
             lines.push(`typedef struct {`);
             for (const field of cls.members) {
-                const ftype = cStructName(applySubst(field.resolvedType, subst));
+                const ftype = this.cType(applySubst(field.resolvedType, subst));
                 lines.push(`    ${ftype} ${field.name};`);
             }
             lines.push(`} ${sname};`);
@@ -655,8 +705,8 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             if (fn.typeParams.length > 0) continue; // generic: emit concrete instantiations below
             // インポートがある場合、他ファイル由来の関数はスキップ
             if (hasImports && !this.isOwn(this.fnOrigin.get(name) ?? "")) continue;
-            const params = fn.params.map(p => `${cStructName(p.resolvedType)} ${p.name}`);
-            lines.push(`static ${cStructName(fn.returnType)} _ms_${name}(${params.join(", ")});`);
+            const params = fn.params.map(p => `${this.cType(p.resolvedType)} ${p.name}`);
+            lines.push(`static ${this.cType(fn.returnType)} _ms_${name}(${params.join(", ")});`);
         }
 
         // emit forward decls for concrete instantiations of generic functions (entry file only)
@@ -666,8 +716,8 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             for (const concreteT of insts) {
                 const subst = new Map<string, string>();
                 fn.typeParams.forEach(p => subst.set(p, concreteT));
-                const ret = cStructName(applySubst(fn.returnType, subst));
-                const params = fn.params.map(p => `${cStructName(applySubst(p.resolvedType, subst))} ${p.name}`);
+                const ret = this.cType(applySubst(fn.returnType, subst));
+                const params = fn.params.map(p => `${this.cType(applySubst(p.resolvedType, subst))} ${p.name}`);
                 const mangledT = cStructName(concreteT).replace(/^_ms_/, "");
                 lines.push(`static ${ret} _ms_${name}__${mangledT}(${params.join(", ")});`);
             }
@@ -734,9 +784,9 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 const subst = new Map<string, string>();
                 fn.typeParams.forEach(p => subst.set(p, concreteT));
                 const mangledT = cStructName(concreteT).replace(/^_ms_/, "");
-                const ret = cStructName(applySubst(fn.returnType, subst));
+                const ret = this.cType(applySubst(fn.returnType, subst));
                 const params = fn.params.map(p =>
-                    `${cStructName(applySubst(p.resolvedType, subst))} ${p.name}`);
+                    `${this.cType(applySubst(p.resolvedType, subst))} ${p.name}`);
                 const body: string[] = [];
                 fn.body.forEach(n => this.emitBodyNode(n, "    ", subst, body, fn.returnType));
                 lines.push(`static ${ret} _ms_${name}__${mangledT}(${params.join(", ")}) {\n${body.map(l => "    " + l).join("\n")}\n}`);
@@ -749,10 +799,10 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
     private methodSignature(classType: string, method: FunctionDecl, subst: Map<string, string>): string {
         const sname   = cStructName(classType);
         const fnName  = cMethodName(classType, method.name);
-        const retType = cStructName(applySubst(method.returnType, subst));
+        const retType = this.cType(applySubst(method.returnType, subst));
         const params: string[] = [`${sname}* self`];
         for (const p of method.params) {
-            params.push(`${cStructName(applySubst(p.resolvedType, subst))} ${p.name}`);
+            params.push(`${this.cType(applySubst(p.resolvedType, subst))} ${p.name}`);
         }
         return `static ${retType} ${fnName}(${params.join(", ")})`;
     }
@@ -766,7 +816,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
     ): string {
         const sname   = cStructName(classType);
         const fnName  = cMethodName(classType, method.name);
-        const elemC   = cStructName(elemType);
+        const elemC   = this.cType(elemType);
         const wordsPerElem = `(int32_t)(sizeof(${elemC}) / sizeof(int32_t))`;
         if (method.name === "operator[]") {
             return `static ${elemC} ${fnName}(${sname}* self, _ms_u32 index) {\n` +
@@ -787,37 +837,46 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         subst: Map<string, string>,
     ): string {
         this.tmpCount = 0;
+        this.curClassType = classType;
         const mozRetType = applySubst(method.returnType, subst);
         const bodyLines  = this.emitBody(method.body, "    ", subst, mozRetType);
+        this.curClassType = "";
         return `${this.methodSignature(classType, method, subst)} {\n${bodyLines}\n}`;
     }
 
     private globalInitExpr(valueNode: ASTNode): string {
-        // only handles NewExpr with a single RawLiteral arg (all core.moc constants)
+        // only handles NewExpr with a single RawLiteral arg
         if (valueNode.type !== "NewExpr") return "{}";
         const args = (valueNode as any).args as ASTNode[];
         if (args.length === 0) return "{}";
         const arg = args[0];
         if (arg.type !== "RawLiteral") return "{}";
         const raw = arg as any;
+        // checker は f32/f64・整数幅を区別しないため、対象型の機械型で幅を決める
+        const concreteType = (valueNode as any).resolvedType as string;
+        const base = concreteType.replace(/<.*>$/, "");
+        const paramType = this.classes.get(base)?.methods
+            .find(m => m.name === "constructor")?.params[0]?.resolvedType ?? "_m32";
         if (raw.kind === "float") {
-            // f32 bit pattern as int32_t constant
+            if (paramType === "_m64") {
+                const buf = new Float64Array([raw.value]);
+                const bits = new BigInt64Array(buf.buffer)[0];
+                return `{ .bits = (int64_t)${bits}LL }`;
+            }
             const buf = new Float32Array([raw.value]);
             const bits = new Int32Array(buf.buffer)[0];
             return `{ .bits = (int32_t)${bits} }`;
         }
-        if (raw.kind === "double") {
-            const buf = new Float64Array([raw.value]);
-            const bits = new BigInt64Array(buf.buffer)[0];
-            return `{ .bits = (int64_t)${bits}LL }`;
+        if (paramType === "_m64") {
+            return `{ .bits = (int64_t)${raw.value}LL }`;
         }
         return `{ .bits = (int32_t)${raw.value} }`;
     }
 
     private emitFreeFunction(fn: FunctionDecl): string {
         this.tmpCount = 0;
-        const retType   = cStructName(fn.returnType);
-        const params    = fn.params.map(p => `${cStructName(p.resolvedType)} ${p.name}`);
+        const retType   = this.cType(fn.returnType);
+        const params    = fn.params.map(p => `${this.cType(p.resolvedType)} ${p.name}`);
         const fnName    = `_ms_${fn.name}`;
         const bodyLines = this.emitBody(fn.body, "    ", new Map(), fn.returnType);
         return `static ${retType} ${fnName}(${params.join(", ")}) {\n${bodyLines}\n}`;
@@ -881,9 +940,11 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 const pre: string[] = [];
                 const expr = this.flattenExpr(node.value, pre, subst);
                 out.push(...pre);
-                const ctype = cStructName(applySubst(node.resolvedType, subst));
+                const mozT  = applySubst(node.resolvedType, subst);
+                const ctype = this.cType(mozT);
                 if (ctype === "void") { if (expr) out.push(`${expr};`); break; }
-                out.push(`${ctype} ${node.name} = ${expr || "{ 0 }"};`);
+                const fallback = this.isRef(mozT) ? "NULL" : "{ 0 }";
+                out.push(`${ctype} ${node.name} = ${expr || fallback};`);
                 break;
             }
 
@@ -1041,7 +1102,9 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             if (node.receiver.type === "Identifier" && node.receiver.name === "this") {
                 return `self->${node.member}`;
             }
-            return `${this.emitLvalue(node.receiver)}.${node.member}`;
+            const recvType = (node.receiver as any).resolvedType ?? "";
+            const sep = this.isRef(recvType) ? "->" : ".";
+            return `${this.emitLvalue(node.receiver)}${sep}${node.member}`;
         }
         return "/* lvalue? */";
     }
@@ -1078,7 +1141,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
     private flattenExpr(node: ASTNode, pre: string[], subst: Map<string, string>): string {
         switch (node.type) {
             case "Identifier":
-                if (node.name === "this") return "(*self)";
+                if (node.name === "this") return this.isRef(this.curClassType) ? "self" : "(*self)";
                 return node.name;
 
             case "RawLiteral":
@@ -1098,6 +1161,10 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                     return this.flattenExpr(node.receiver, pre, subst);
                 }
                 const recvExpr = this.flattenExpr(node.receiver, pre, subst);
+                if (this.isRef(recvMozType)) {
+                    const recvPtr = this.maybeTemp(recvExpr, this.cType(recvMozType), pre);
+                    return `${recvPtr}->${node.member}`;
+                }
                 const recvVar  = this.maybeTemp(recvExpr, cStructName(recvMozType), pre);
                 return `${recvVar}.${node.member}`;
             }
@@ -1149,7 +1216,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 const retType = applySubst(node.resolvedType, subst);
                 if (retType === "void") { pre.push(`${fnCall};`); return ""; }
                 const tmp = this.nextTmp();
-                pre.push(`${cStructName(retType)} ${tmp} = ${fnCall};`);
+                pre.push(`${this.cType(retType)} ${tmp} = ${fnCall};`);
                 return tmp;
             }
         }
@@ -1174,7 +1241,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         }
 
         const tmp = this.nextTmp();
-        pre.push(`${cStructName(retType)} ${tmp} = ${call};`);
+        pre.push(`${this.cType(retType)} ${tmp} = ${call};`);
         return tmp;
     }
 
@@ -1199,41 +1266,77 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         subst: Map<string, string>,
     ): string {
         const concreteType = applySubst(node.resolvedType, subst);
-        const ctype        = cStructName(concreteType);
+        const cname        = cStructName(concreteType);
+        const isRef        = this.isRef(concreteType);
         const tmp          = this.nextTmp();
+        const acc          = isRef ? "->" : ".";          // フィールドアクセス演算子
+        const selfArg      = isRef ? tmp : `&${tmp}`;     // ctor の self に渡す式
 
-        // 文字列リテラル（elements あり）
+        // 参照型はヒープ確保（calloc で 0 初期化）、値型はローカル struct + memset
+        const declare = () => {
+            if (isRef) {
+                pre.push(`${cname}* ${tmp} = (${cname}*)calloc(1, sizeof(${cname}));`);
+            } else {
+                pre.push(`${cname} ${tmp};`);
+                pre.push(`memset(&${tmp}, 0, sizeof(${cname}));`);
+            }
+        };
+
+        // 文字列リテラル（elements あり → Array<u32> = 参照型）
         if (node.elements !== undefined) {
             const n = node.elements.length;
-            pre.push(`${ctype} ${tmp};`);
-            pre.push(`memset(&${tmp}, 0, sizeof(${ctype}));`);
+            const { ptr: ptrField, len: lenField } = this.arrayFields();
+            declare();
             if (n > 0) {
-                pre.push(`${tmp}.ptr = _ms_malloc((int32_t)(${n * 4}));`);
+                pre.push(`${tmp}${acc}${ptrField} = _ms_malloc((int32_t)(${n * 4}));`);
                 for (let i = 0; i < n; i++) {
-                    pre.push(`_ms_heap[${tmp}.ptr + ${i}] = (int32_t)${node.elements[i].value};`);
+                    pre.push(`_ms_heap[${tmp}${acc}${ptrField} + ${i}] = (int32_t)${node.elements[i].value};`);
                 }
             }
-            const { len: lenField } = this.arrayFields();
-            pre.push(`${tmp}.${lenField} = (int32_t)${n};`);
+            pre.push(`${tmp}${acc}${lenField} = (int32_t)${n};`);
             return tmp;
         }
 
-        // 通常のNewExpr
-        pre.push(`${ctype} ${tmp};`);
-        pre.push(`memset(&${tmp}, 0, sizeof(${ctype}));`);
-
         if (CCodegen.MACHINE_TYPES.has(concreteType)) {
             // machine type (_m32 etc.) has no constructor — just assign
+            declare();
             const arg = node.args.length > 0 ? this.flattenExpr(node.args[0], pre, subst) : "0";
             pre.push(`${tmp} = ${arg};`);
-        } else {
-            const ctorName = cMethodName(concreteType, "constructor");
-            const argExprs = node.args.map(a => this.flattenExpr(a, pre, subst));
-            const allArgs  = [`&${tmp}`, ...argExprs].join(", ");
-            pre.push(`${ctorName}(${allArgs});`);
+            return tmp;
         }
 
+        // 通常のNewExpr（ラッパー値 or 参照オブジェクト）
+        declare();
+        const ctorName = cMethodName(concreteType, "constructor");
+        const paramTypes = this.ctorParamTypes(concreteType, subst);
+        const argExprs = node.args.map((arg, i) => this.emitCtorArg(arg, paramTypes[i], pre, subst));
+        const allArgs  = [selfArg, ...argExprs].join(", ");
+        pre.push(`${ctorName}(${allArgs});`);
         return tmp;
+    }
+
+    // コンストラクタの引数型一覧（型変数は subst で解決）
+    private ctorParamTypes(concreteType: string, subst: Map<string, string>): string[] {
+        const base = concreteType.replace(/<.*>$/, "");
+        const ctor = this.classes.get(base)?.methods.find(m => m.name === "constructor");
+        if (!ctor) return [];
+        return ctor.params.map(p => applySubst(p.resolvedType, subst));
+    }
+
+    // コンストラクタ引数を出力する。リテラルは引数の機械型でビット幅を選ぶ
+    // （checker は f32/f64 を区別せず kind:'float'、整数も幅を持たないため、
+    //   ここで _m64 → 64bit double / int64 を判定して切り詰めを防ぐ）
+    private emitCtorArg(arg: ASTNode, paramType: string | undefined, pre: string[], subst: Map<string, string>): string {
+        if (arg.type === "RawLiteral" && paramType === "_m64") {
+            const raw = arg as any;
+            if (raw.kind === "float") {
+                const v = raw.value as number;
+                const dlit = Number.isInteger(v) ? `${v}.0` : `${v}`;
+                return `_ms_f64_bits(${dlit})`;
+            }
+            return `(int64_t)${raw.value}LL`;
+        }
+        return this.flattenExpr(arg, pre, subst);
     }
 
     private flattenIntrinsic(
@@ -1396,6 +1499,8 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             case "__builtin_f32_to_u32": return `(int32_t)(uint32_t)_ms_bits_f32(${a(0)})`;
             case "__builtin_i32_to_i64": return `(int64_t)(int32_t)(${a(0)})`;
             case "__builtin_u32_to_u64": return `(int64_t)(uint64_t)(uint32_t)(${a(0)})`;
+            case "__builtin_i32_to_f64": return `_ms_f64_bits((double)(int32_t)(${a(0)}))`;
+            case "__builtin_u32_to_f64": return `_ms_f64_bits((double)(uint32_t)(${a(0)}))`;
             case "__builtin_i64_to_i32": return `(int32_t)(int64_t)(${a(0)})`;
             case "__builtin_u64_to_u32": return `(int32_t)(uint32_t)(uint64_t)(${a(0)})`;
             case "__builtin_f32_to_f64": return `_ms_f64_bits((double)_ms_bits_f32(${a(0)}))`;
@@ -1435,37 +1540,37 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             // I/O
             case "__builtin_stdout_write": {
                 const v0 = this.flattenExpr(node.args[0], pre, subst);
-                const sv = this.maybeTemp(v0, cStructName(applySubst(
+                const sv = this.maybeTemp(v0, this.cType(applySubst(
                     (node.args[0] as any).resolvedType ?? "Array<u32>", subst)), pre);
-                pre.push(`_ms_write_str(${sv}.ptr, ${sv}.${this.arrayFields().len});`);
+                pre.push(`_ms_write_str(${sv}->ptr, ${sv}->${this.arrayFields().len});`);
                 return "";
             }
             case "__builtin_stderr_write": {
                 const v0 = this.flattenExpr(node.args[0], pre, subst);
-                const sv = this.maybeTemp(v0, cStructName(applySubst(
+                const sv = this.maybeTemp(v0, this.cType(applySubst(
                     (node.args[0] as any).resolvedType ?? "Array<u32>", subst)), pre);
-                pre.push(`_ms_write_str_err(${sv}.ptr, ${sv}.${this.arrayFields().len});`);
+                pre.push(`_ms_write_str_err(${sv}->ptr, ${sv}->${this.arrayFields().len});`);
                 return "";
             }
             case "__builtin_panic": {
                 const v0 = this.flattenExpr(node.args[0], pre, subst);
-                const sv = this.maybeTemp(v0, cStructName(applySubst(
+                const sv = this.maybeTemp(v0, this.cType(applySubst(
                     (node.args[0] as any).resolvedType ?? "Array<u32>", subst)), pre);
-                pre.push(`_ms_panic_str(${sv}.ptr, ${sv}.${this.arrayFields().len});`);
+                pre.push(`_ms_panic_str(${sv}->ptr, ${sv}->${this.arrayFields().len});`);
                 return "";
             }
             case "__builtin_stdin_readline": {
                 pre.push(`fprintf(stderr, "[PANIC] __builtin_stdin_readline not supported\\n"); exit(1);`);
                 const rtmp = this.nextTmp();
-                pre.push(`_ms_Array_u32 ${rtmp}; memset(&${rtmp}, 0, sizeof(_ms_Array_u32));`);
+                pre.push(`_ms_Array_u32* ${rtmp} = (_ms_Array_u32*)calloc(1, sizeof(_ms_Array_u32));`);
                 return rtmp;
             }
 
             case "__builtin_str_length": {
                 const v0 = this.flattenExpr(node.args[0], pre, subst);
-                const sv = this.maybeTemp(v0, cStructName(applySubst(
+                const sv = this.maybeTemp(v0, this.cType(applySubst(
                     (node.args[0] as any).resolvedType ?? "Array<u32>", subst)), pre);
-                return `${sv}.${this.arrayFields().len}`;
+                return `${sv}->${this.arrayFields().len}`;
             }
 
             // sizeof
@@ -1478,8 +1583,8 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 const { ptr: pF, len: lF } = this.arrayFields();
                 const fn0type = applySubst((node.args[0] as any).resolvedType ?? "Array<u32>", subst);
                 const fn0 = this.flattenExpr(node.args[0], pre, subst);
-                const fnV = this.maybeTemp(fn0, cStructName(fn0type), pre);
-                return `(int64_t)_ms_thread_spawn(${fnV}.${pF}, ${fnV}.${lF})`;
+                const fnV = this.maybeTemp(fn0, this.cType(fn0type), pre);
+                return `(int64_t)_ms_thread_spawn(${fnV}->${pF}, ${fnV}->${lF})`;
             }
             case "__builtin_thread_join": {
                 pre.push(`_ms_thread_join(${a(0)});`);
@@ -1492,8 +1597,8 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 const { ptr: pF, len: lF } = this.arrayFields();
                 const fn1type = applySubst((node.args[1] as any).resolvedType ?? "Array<u32>", subst);
                 const fn1 = this.flattenExpr(node.args[1], pre, subst);
-                const fnV = this.maybeTemp(fn1, cStructName(fn1type), pre);
-                pre.push(`_ms_tp_submit(${a(0)}, ${fnV}.${pF}, ${fnV}.${lF});`);
+                const fnV = this.maybeTemp(fn1, this.cType(fn1type), pre);
+                pre.push(`_ms_tp_submit(${a(0)}, ${fnV}->${pF}, ${fnV}->${lF});`);
                 return "";
             }
             case "__builtin_threadpool_wait": {
@@ -1562,6 +1667,12 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         pre: string[],
         subst: Map<string, string>,
     ): string {
+        // 参照型レシーバは既にポインタ（self に渡すアドレスそのもの）
+        if (this.isRef(resolvedType)) {
+            if (node.type === "Identifier" && node.name === "this") return "self";
+            const refExpr = this.flattenExpr(node, pre, subst);
+            return this.maybeTemp(refExpr, this.cType(resolvedType), pre);
+        }
         if (node.type === "Identifier" && node.name === "this") return "self";
         if (node.type === "Identifier") return `&${node.name}`;
         if (node.type === "MemberAccess") {
@@ -1605,6 +1716,8 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             "_m8": 1, "_m16": 2, "_m32": 4, "_m64": 8, "_m128": 16, "_m256": 32, "_m512": 64,
         };
         if (MACHINE_SIZES[mozType] !== undefined) return MACHINE_SIZES[mozType];
+        // 参照型オブジェクトはポインタ（ヒープ上の実体は別管理）として 1 ワード×幅
+        if (this.isRef(mozType)) return CCodegen.POINTER_SIZE;
         const base = baseType(mozType);
         const cls  = this.classes.get(base);
         if (!cls) return 4;

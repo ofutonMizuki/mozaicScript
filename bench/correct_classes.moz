@@ -1,0 +1,111 @@
+// ============================================================
+//  correct_classes.moz — クラス・演算子・ジェネリクス・Option/Result
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+// 整数 2 次元ベクトル（演算子オーバーロードと this 返却）
+public class IVec {
+    public let x: i32;
+    public let y: i32;
+
+    public constructor(xv: i32, yv: i32) {
+        this.x = xv;
+        this.y = yv;
+    }
+
+    public operator+(o: IVec): IVec {
+        return new IVec(this.x + o.x, this.y + o.y);
+    }
+    public operator-(o: IVec): IVec {
+        return new IVec(this.x - o.x, this.y - o.y);
+    }
+    public operator*(k: i32): IVec {
+        return new IVec(this.x * k, this.y * k);
+    }
+    public dot(o: IVec): i32 {
+        return this.x * o.x + this.y * o.y;
+    }
+    public normSq(): i32 {
+        return this.x * this.x + this.y * this.y;
+    }
+    public operator==(o: IVec): boolean {
+        return this.x == o.x && this.y == o.y;
+    }
+    public operator<(o: IVec): boolean {
+        return this.normSq() < o.normSq();
+    }
+    public operator>(o: IVec): boolean {
+        return this.normSq() > o.normSq();
+    }
+    // this を返す（インプレース加算）
+    public addInPlace(o: IVec): IVec {
+        this.x = this.x + o.x;
+        this.y = this.y + o.y;
+        return this;
+    }
+}
+
+// ジェネリクス関数（モノモーフィ化）
+public function maxOf<T>(a: T, b: T): T {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+public function identity<T>(v: T): T {
+    return v;
+}
+
+public function main(): void {
+    const a: IVec = new IVec(new i32(3), new i32(4));
+    const b: IVec = new IVec(new i32(1), new i32(2));
+
+    const sum: IVec = a + b;          // (4,6)
+    U.reportInt("(a+b).x", sum.x);    // 4
+    U.reportInt("(a+b).y", sum.y);    // 6
+
+    const diff: IVec = a - b;         // (2,2)
+    U.reportInt("(a-b).normSq", diff.normSq());   // 8
+
+    const scaled: IVec = b * new i32(5);   // (5,10)
+    U.reportInt("(b*5).x", scaled.x);      // 5
+
+    U.reportInt("a.dot(b)", a.dot(b));     // 3+8=11
+    U.reportInt("a.normSq", a.normSq());   // 25
+
+    U.reportBool("a == a", a == new IVec(new i32(3), new i32(4)));  // true
+    U.reportBool("a > b", a > b);          // 25 > 5 → true
+
+    // this 返却によるメソッドチェーン（参照セマンティクス）
+    let acc: IVec = new IVec(new i32(0), new i32(0));
+    acc.addInPlace(a).addInPlace(b).addInPlace(a);   // (0+3+1+3, 0+4+2+4) = (7,10)
+    U.reportInt("acc.x (chained)", acc.x);   // 7
+    U.reportInt("acc.y (chained)", acc.y);   // 10
+
+    // エイリアス: 同一オブジェクトを 2 変数で共有（参照セマンティクス）
+    let alias: IVec = acc;
+    alias.addInPlace(b);                      // acc も (8,12) に変わるべき
+    U.reportInt("acc.x via alias", acc.x);    // 8
+
+    // ジェネリクス（i32 と IVec で単一化）
+    U.reportInt("maxOf<i32>(7,3)", maxOf<i32>(new i32(7), new i32(3)));   // 7
+    const bigger: IVec = maxOf<IVec>(a, b);   // a（normSq 大）
+    U.reportInt("maxOf<IVec>.normSq", bigger.normSq());   // 25
+    U.reportInt("identity<i32>(99)", identity<i32>(new i32(99)));   // 99
+
+    // Option<i32>
+    const some: Option<i32> = new Option<i32>(new boolean(1), new i32(123));
+    const none: Option<i32> = new Option<i32>(new boolean(0), new i32(-1));
+    U.reportBool("some.isSome", some.isSome());   // true
+    U.reportBool("none.isNone", none.isNone());   // true
+    U.reportInt("some.unwrap", some.unwrap());    // 123
+
+    // Result<i32>
+    const ok: Result<i32> = new Result<i32>(new boolean(1), new i32(7), "");
+    const err: Result<i32> = new Result<i32>(new boolean(0), new i32(0), "boom");
+    U.reportBool("ok.isOk", ok.isOk());      // true
+    U.reportBool("err.isErr", err.isErr());  // true
+    U.reportInt("ok.unwrap", ok.unwrap());   // 7
+}

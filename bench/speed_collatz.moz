@@ -1,0 +1,35 @@
+// ============================================================
+//  speed_collatz.moz — 分岐の多い整数演算
+//  1..M の各数の Collatz ステップ数を求め、最大ステップ数を出力。
+//  値は u64 で保持（オーバーフロー回避）。
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function main(): void {
+    const M: u32 = new u32(40000);
+    let maxSteps: i32 = new i32(0);
+    let argmax: i32 = new i32(0);
+
+    let n: u32 = new u32(1);
+    while (n < M) {
+        let v: u64 = n.toU64();            // u64 でオーバーフロー回避
+        let steps: i32 = new i32(0);
+        while (v > new u64(1)) {
+            if (v % new u64(2) == new u64(0)) {
+                v = v / new u64(2);
+            } else {
+                v = v * new u64(3) + new u64(1);
+            }
+            steps = steps + new i32(1);
+        }
+        if (steps > maxSteps) {
+            maxSteps = steps;
+            argmax = n.toI32();
+        }
+        n = n + new u32(1);
+    }
+
+    U.reportInt("max collatz steps (<40000)", maxSteps);   // 323
+    U.reportInt("argmax", argmax);                         // 35655
+}

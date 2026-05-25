@@ -1,0 +1,50 @@
+// ============================================================
+//  correct_arith.moz — 整数演算・ビット操作・型変換の正当性テスト
+//  32bit ラップアラウンド／除算・剰余の符号／ビット命令／i64 を確認
+// ============================================================
+import "../sample/core.moc" as *;
+import "./util.moz" as U;
+
+public function main(): void {
+    // --- i32 基本演算 ---
+    const a: i32 = new i32(1000000);
+    const b: i32 = new i32(7);
+    U.reportInt("a/b", a / b);          // 142857
+    U.reportInt("a%b", a % b);          // 1
+    U.reportInt("a*b", a * b);          // 7000000
+
+    // --- 32bit 乗算ラップアラウンド（全バックエンドで一致すべき） ---
+    const big: i32 = new i32(100000) * new i32(100000);  // 1e10 mod 2^32
+    U.reportInt("100000*100000(i32)", big);              // 1410065408
+
+    // --- 負数の除算・剰余（truncation toward zero） ---
+    const neg: i32 = new i32(-17);
+    U.reportInt("-17/5", neg / new i32(5));   // -3
+    U.reportInt("-17%5", neg % new i32(5));   // -2
+
+    // --- ビット操作 ---
+    const one: i32 = new i32(1);
+    U.reportInt("1<<10", one.shl(new i32(10)));        // 1024
+    U.reportInt("clz(1024)", new i32(1024).clz());     // 21
+    U.reportInt("ctz(8)", new i32(8).ctz());           // 3
+    U.reportInt("popcnt(255)", new i32(255).popcnt()); // 8
+    U.reportInt("rotl(1,4)", one.rotl(new i32(4)));    // 16
+    const big2: i32 = new i32(1024);
+    U.reportInt("1024>>3(arith)", big2.shr(new i32(3))); // 128
+
+    // --- u32 演算とラップアラウンド ---
+    const u: u32 = new u32(4000000000) + new u32(1000000000); // 5e9 mod 2^32
+    U.reportInt("4e9+1e9(u32)->i32", u.toI32());  // 705032704
+    const ushift: u32 = new u32(1).shl(new u32(20));
+    U.reportInt("1<<20(u32)", ushift.toI32());    // 1048576
+
+    // --- i64 演算（最終的に i32 に収まる値へ変換して出力） ---
+    const x: i64 = new i64(1000000) * new i64(2000000); // 2e12（i64 で保持）
+    const y: i64 = x / new i64(1000000);                // 2e6
+    U.reportInt("i64 2e12/1e6", y.toI32());             // 2000000
+
+    // --- 型変換ラウンドトリップ ---
+    const f: f32 = new i32(123).toF32();
+    U.reportInt("f32(123)->i32", f.toI32());           // 123
+    U.reportBool("42.0 > 41.0", new f32(42.0) > new f32(41.0)); // true
+}
