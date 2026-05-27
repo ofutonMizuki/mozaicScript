@@ -33,11 +33,8 @@
 | 式 | `MethodCall`, `NewExpr`, `Identifier`, `Intrinsic`, `Assign`, `MemberAccess` |
 | 文 | `IfStmt`, `ElseStmt`, `WhileStmt`, `ForStmt`, `ReturnStmt`, `BreakStmt`, `BlockStmt` |
 | リテラル | `RawLiteral` |
-| スレッド | `ThreadSpawn`, `ThreadJoin` |
-| スレッドプール | `ThreadPoolCreate`, `ThreadPoolSubmit`, `ThreadPoolWait`, `ThreadPoolDestroy` |
-| ミューテックス | `MutexCreate`, `MutexLock`, `MutexUnlock` |
-| 条件変数 | `CondVarCreate`, `CondVarWait`, `CondVarSignal`, `CondVarBroadcast` |
-| アトミック | `AtomicLoad`, `AtomicStore`, `AtomicCas`, `AtomicFetchAdd`, `AtomicFetchSub` |
+
+> スレッド/ミューテックス/条件変数/アトミックなどの並行プリミティブは専用の IR ノードを持たず、コアライブラリ (`.moc`) のクラスメソッド経由で `Intrinsic`（`__builtin_thread_*`, `__builtin_mutex_*`, `__builtin_condvar_*`, `__builtin_atomic_*32/64`, `__builtin_atomic_fence`）として出力される。各バックエンドはこれら `Intrinsic` をネイティブ同期プリミティブに lower する。
 
 ---
 
@@ -365,32 +362,17 @@
 }
 ```
 
-### マルチスレッドノード
+### 並行プリミティブ（IR ノードなし）
 
-```json
-{ "type": "ThreadSpawn", "resolvedType": "_m64", "fnName": "searchAlphaBeta", "args": [...] }
-{ "type": "ThreadJoin", "resolvedType": "void", "threadId": { ... } }
-{ "type": "ThreadPoolCreate", "resolvedType": "_m64", "size": { ... } }
-{ "type": "ThreadPoolSubmit", "resolvedType": "void", "pool": { ... }, "fnName": "worker", "args": [...] }
-{ "type": "ThreadPoolWait", "resolvedType": "void", "pool": { ... } }
-{ "type": "ThreadPoolDestroy", "resolvedType": "void", "pool": { ... } }
-{ "type": "MutexCreate", "resolvedType": "_m64" }
-{ "type": "MutexLock", "resolvedType": "void", "mutexId": { ... } }
-{ "type": "MutexUnlock", "resolvedType": "void", "mutexId": { ... } }
-{ "type": "CondVarCreate", "resolvedType": "_m64" }
-{ "type": "CondVarWait", "resolvedType": "void", "condVar": { ... }, "mutexId": { ... } }
-{ "type": "CondVarSignal", "resolvedType": "void", "condVar": { ... } }
-{ "type": "CondVarBroadcast", "resolvedType": "void", "condVar": { ... } }
-{ "type": "AtomicLoad", "resolvedType": "_m32", "ptr": { ... } }
-{ "type": "AtomicStore", "resolvedType": "void", "ptr": { ... }, "value": { ... } }
-{ "type": "AtomicCas", "resolvedType": "_m32", "ptr": { ... }, "expected": { ... }, "desired": { ... } }
-{ "type": "AtomicFetchAdd", "resolvedType": "_m32", "ptr": { ... }, "value": { ... } }
-{ "type": "AtomicFetchSub", "resolvedType": "_m32", "ptr": { ... }, "value": { ... } }
-```
+スレッド、ミューテックス、条件変数、アトミック操作は IR ノードとしては表現されず、コアライブラリのクラスメソッド経由で `Intrinsic` ノード（`__builtin_*`）として lower される。具体的には:
 
-- `ThreadSpawn` / `ThreadPoolSubmit` の `fnName` は文字列（評価時に関数名として解決される）
-- `args` は式ノードの配列
-- スレッドID・プールID・ミューテックスID・条件変数IDはすべて `_m64` で表現される
+- スレッド: `__builtin_thread_spawn(fnName, args) -> _m64`, `__builtin_thread_join(id)`
+- スレッドプール: `__builtin_threadpool_create(size) -> _m64`, `__builtin_threadpool_submit(pool, fnName, args)`, `__builtin_threadpool_wait(pool)`, `__builtin_threadpool_destroy(pool)`
+- ミューテックス: `__builtin_mutex_create() -> _m64`, `__builtin_mutex_lock(id)`, `__builtin_mutex_unlock(id)`
+- 条件変数: `__builtin_condvar_create() -> _m64`, `__builtin_condvar_wait(cv, mutex)`, `__builtin_condvar_signal(cv)`, `__builtin_condvar_broadcast(cv)`
+- アトミック (32/64bit): `__builtin_atomic_load{32,64}(ptr, order)`, `__builtin_atomic_store{32,64}(ptr, val, order)`, `__builtin_atomic_cas{32,64}(ptr, exp, des, successOrder, failureOrder)`, `__builtin_atomic_fetch_add{32,64}(ptr, val, order)`, `__builtin_atomic_fetch_sub{32,64}(ptr, val, order)`, `__builtin_atomic_fence(order)`
+
+各バックエンドはこれら `Intrinsic` をネイティブの同期プリミティブ（pthread / Atomics / WASM 線形メモリ + シングルスレッド近似など）に lower する。
 
 ### RawLiteral
 

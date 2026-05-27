@@ -180,13 +180,22 @@ interface CheckCtx {
     locals:     Map<string, { type: string; mut: boolean }>;
     thisType:   string | null;
     returnType: string;
-    inLitCtx:   boolean;  // .moc コンストラクタ引数内ならリテラル許可
+    inLitCtx:   boolean;  // コンストラクタ引数内ならリテラル許可
 }
 
 // ── Checker ───────────────────────────────────────────────────────────────────
 
 export class Checker {
     constructor(private reg: Registry) {}
+
+    // §6.6: this を引数として渡すことを禁止する
+    private rejectThisArgs(args: A.PExpr[]): void {
+        for (const a of args) {
+            if (a.kind === 'this') {
+                throw new CheckError(`this を引数として渡すことはできません (§6.6)`, a.pos);
+            }
+        }
+    }
 
     // ファイル全体を検査して IR ノードを返す
     check(file: A.PFile): IR.ASTNode[] {
@@ -278,7 +287,7 @@ export class Checker {
                 const rt = this.resolveType(decl.type, isMoc);
                 const ctx: CheckCtx = {
                     isMoc, locals: new Map(), thisType: null,
-                    returnType: 'void', inLitCtx: isMoc,
+                    returnType: 'void', inLitCtx: false,
                 };
                 const value = this.checkExpr(decl.value, ctx);
                 return { type: 'VarDecl', name: decl.name, resolvedType: rt, value };
@@ -533,6 +542,7 @@ export class Checker {
 
             case 'new': {
                 const rt = this.resolveType(expr.type, ctx.isMoc);
+                this.rejectThisArgs(expr.args);
                 // コンストラクタ引数内ではリテラル許可
                 const litCtx: CheckCtx = { ...ctx, inLitCtx: true };
                 const args = expr.args.map(a => this.checkExpr(a, litCtx));
@@ -604,6 +614,7 @@ export class Checker {
                         throw new CheckError(`組み込み関数は .moc ファイル内のみ使用可能`, expr.pos);
                     }
                     const rt = BUILTIN_RET[expr.name] ?? '_m32';
+                    this.rejectThisArgs(expr.args);
                     const args = expr.args.map(a => this.checkExpr(a, ctx));
                     const node: IR.Intrinsic = { type: 'Intrinsic', name: expr.name, resolvedType: rt, args };
                     if (expr.name === '__builtin_sizeof' && expr.typeArgs.length > 0) {
@@ -619,6 +630,7 @@ export class Checker {
                     if (expr.typeArgs[i]) subst.set(tp, this.resolveType(expr.typeArgs[i], ctx.isMoc));
                 });
                 const rt = applySubst(fn.returnType, subst);
+                this.rejectThisArgs(expr.args);
                 const args = expr.args.map(a => this.checkExpr(a, ctx));
                 // 関数呼び出しを MethodCall としてエンコード（receiver は識別子）
                 return {
@@ -638,6 +650,7 @@ export class Checker {
                         if (expr.typeArgs[i]) subst.set(tp, this.resolveType(expr.typeArgs[i], ctx.isMoc));
                     });
                     const rt = applySubst(fn.returnType, subst);
+                    this.rejectThisArgs(expr.args);
                     const args = expr.args.map(a => this.checkExpr(a, ctx));
                     const qualifiedName = `${expr.obj.name}.${expr.method}`;
                     return {
@@ -648,6 +661,7 @@ export class Checker {
                 }
                 const obj = this.checkExpr(expr.obj, ctx);
                 const objType = resolvedType(obj);
+                this.rejectThisArgs(expr.args);
                 const args = expr.args.map(a => this.checkExpr(a, ctx));
                 const rt = this.methodReturnType(objType, expr.method);
                 return { type: 'MethodCall', resolvedType: rt, receiver: obj, method: expr.method, args };

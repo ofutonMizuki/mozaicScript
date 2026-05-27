@@ -53,24 +53,7 @@ export type ASTNode =
     | BreakStmt
     | RawLiteral
     | MemberAccess
-    | ThreadSpawn
-    | ThreadJoin
-    | ThreadPoolCreate
-    | ThreadPoolSubmit
-    | ThreadPoolWait
-    | ThreadPoolDestroy
-    | MutexCreate
-    | MutexLock
-    | MutexUnlock
-    | CondVarCreate
-    | CondVarWait
-    | CondVarSignal
-    | CondVarBroadcast
-    | AtomicLoad
-    | AtomicStore
-    | AtomicCas
-    | AtomicFetchAdd
-    | AtomicFetchSub;
+    | BlockStmt;
 
 export interface ImportDecl {
     type: "ImportDecl";
@@ -200,104 +183,9 @@ export interface RawLiteral {
     value: number;
 }
 
-// マルチスレッドノード
-export interface ThreadSpawn {
-    type: "ThreadSpawn";
-    resolvedType: "_m64";
-    fnName: string;
-    args: ASTNode[];
-}
-export interface ThreadJoin {
-    type: "ThreadJoin";
-    resolvedType: "void";
-    threadId: ASTNode;
-}
-export interface ThreadPoolCreate {
-    type: "ThreadPoolCreate";
-    resolvedType: "_m64";
-    size: ASTNode;
-}
-export interface ThreadPoolSubmit {
-    type: "ThreadPoolSubmit";
-    resolvedType: "void";
-    pool: ASTNode;
-    fnName: string;
-    args: ASTNode[];
-}
-export interface ThreadPoolWait {
-    type: "ThreadPoolWait";
-    resolvedType: "void";
-    pool: ASTNode;
-}
-export interface ThreadPoolDestroy {
-    type: "ThreadPoolDestroy";
-    resolvedType: "void";
-    pool: ASTNode;
-}
-export interface MutexCreate {
-    type: "MutexCreate";
-    resolvedType: "_m64";
-}
-export interface MutexLock {
-    type: "MutexLock";
-    resolvedType: "void";
-    mutexId: ASTNode;
-}
-export interface MutexUnlock {
-    type: "MutexUnlock";
-    resolvedType: "void";
-    mutexId: ASTNode;
-}
-export interface CondVarCreate {
-    type: "CondVarCreate";
-    resolvedType: "_m64";
-}
-export interface CondVarWait {
-    type: "CondVarWait";
-    resolvedType: "void";
-    condVar: ASTNode;
-    mutexId: ASTNode;
-}
-export interface CondVarSignal {
-    type: "CondVarSignal";
-    resolvedType: "void";
-    condVar: ASTNode;
-}
-export interface CondVarBroadcast {
-    type: "CondVarBroadcast";
-    resolvedType: "void";
-    condVar: ASTNode;
-}
-export interface AtomicLoad {
-    type: "AtomicLoad";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-}
-export interface AtomicStore {
-    type: "AtomicStore";
-    resolvedType: "void";
-    ptr: ASTNode;
-    value: ASTNode;
-}
-export interface AtomicCas {
-    type: "AtomicCas";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-    expected: ASTNode;
-    desired: ASTNode;
-}
-export interface AtomicFetchAdd {
-    type: "AtomicFetchAdd";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-    value: ASTNode;
-}
-export interface AtomicFetchSub {
-    type: "AtomicFetchSub";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-    value: ASTNode;
-}
+// 並行プリミティブ（スレッド・ミューテックス・条件変数・アトミック）は
+// 専用ノードを持たず、すべて Intrinsic（`__builtin_*`）として表現される。
+// IR 仕様書「並行プリミティブ（IR ノードなし）」を参照。
 
 export interface MozaicScriptAST {
     mozaicScript: string;
@@ -814,7 +702,7 @@ export class Evaluator {
 
     // 引数を評価してバッファに格納する（アロケーション削減用）
     // 呼び出し深さ別に事前確保したバッファを再利用することで .map() の都度アロケーションを回避する。
-    // ThreadSpawn / ThreadPoolSubmit のように引数を長期保持する場合は .map() で別コピーを作成すること。
+    // `__builtin_thread_spawn` / `__builtin_threadpool_submit` のように引数を長期保持する場合は .map() で別コピーを作成すること。
     private evalArgs(nodes: ASTNode[], env: Environment): RuntimeValue[] {
         const buf = this._argsBufs[this._argsDepth++];
         const n = nodes.length;
@@ -875,73 +763,10 @@ export class Evaluator {
                 return voidValue();
             }
 
-            // ── マルチスレッドノード（シングルスレッドシミュレーション） ──────────
-            case "ThreadSpawn": {
-                const args = node.args.map((a: ASTNode) => this.eval(a, env));
-                return primitive(ThreadManager.enqueue(node.fnName, args));
-            }
-            case "ThreadJoin": {
-                const id = (this.eval(node.threadId, env) as any).value as number;
-                ThreadManager.joinTask(id, (fnName, args) => this.callTopFunction(fnName, args));
-                return voidValue();
-            }
-            case "ThreadPoolCreate": {
-                return primitive(ThreadManager.createPool((this.eval(node.size, env) as any).value));
-            }
-            case "ThreadPoolSubmit": {
-                const poolId = (this.eval(node.pool, env) as any).value as number;
-                const args = node.args.map((a: ASTNode) => this.eval(a, env));
-                ThreadManager.submitToPool(poolId, node.fnName, args);
-                return voidValue();
-            }
-            case "ThreadPoolWait": {
-                const poolId = (this.eval(node.pool, env) as any).value as number;
-                ThreadManager.waitPool(poolId, (fnName, args) => this.callTopFunction(fnName, args));
-                return voidValue();
-            }
-            case "ThreadPoolDestroy": {
-                ThreadManager.destroyPool((this.eval(node.pool, env) as any).value);
-                return voidValue();
-            }
-            case "MutexCreate":
-            case "CondVarCreate": {
-                return primitive(ThreadManager.nextId()); // ダミーID
-            }
-            case "MutexLock":
-            case "MutexUnlock":
-            case "CondVarWait":
-            case "CondVarSignal":
-            case "CondVarBroadcast": {
-                return voidValue(); // no-op
-            }
-            case "AtomicLoad": {
-                return HeapManager.read((this.eval(node.ptr, env) as any).value);
-            }
-            case "AtomicStore": {
-                HeapManager.write((this.eval(node.ptr, env) as any).value, this.eval(node.value, env));
-                return voidValue();
-            }
-            case "AtomicCas": {
-                const addr = (this.eval(node.ptr, env) as any).value;
-                const cur  = HeapManager.read(addr) as any;
-                const exp  = (this.eval(node.expected, env) as any).value;
-                if (cur.value === exp) { HeapManager.write(addr, this.eval(node.desired, env)); return primitive(1); }
-                return primitive(0);
-            }
-            case "AtomicFetchAdd": {
-                const addr = (this.eval(node.ptr, env) as any).value;
-                const cur  = HeapManager.read(addr) as any;
-                const inc  = (this.eval(node.value, env) as any).value;
-                HeapManager.write(addr, primitive(cur.value + inc));
-                return primitive(cur.value);
-            }
-            case "AtomicFetchSub": {
-                const addr = (this.eval(node.ptr, env) as any).value;
-                const cur  = HeapManager.read(addr) as any;
-                const dec  = (this.eval(node.value, env) as any).value;
-                HeapManager.write(addr, primitive(cur.value - dec));
-                return primitive(cur.value);
-            }
+            // 並行プリミティブ（スレッド・ミューテックス・条件変数・アトミック）は
+            // Intrinsic ノード `__builtin_thread_*`, `__builtin_mutex_*`,
+            // `__builtin_condvar_*`, `__builtin_atomic_*32/64`, `__builtin_atomic_fence`
+            // として `evalIntrinsic()` 内でハンドリングされる。
 
             default: return voidValue();
         }
@@ -1110,7 +935,7 @@ export class Evaluator {
         return voidValue();
     }
 
-    // ThreadSpawn / ThreadPoolSubmit のコールバック用（グローバルスコープで実行）
+    // `__builtin_thread_spawn` / `__builtin_threadpool_submit` のコールバック用（グローバルスコープで実行）
     private callTopFunction(fnName: string, args: RuntimeValue[]): void {
         const fn = this.functions.get(fnName);
         if (!fn) throw new Error(`Thread function not found: ${fnName}`);
@@ -1175,7 +1000,7 @@ ts-node index.ts output.json
 
 - **`__builtin_sizeof`** はクラスの `private` フィールドの型（`_m8`=1, `_m16`=2, `_m32`=4, `_m64`=8, `_m128`=16, `_m256`=32, `_m512`=64バイト）の合計を返す。`evaluator.ts` 内の `evalSizeof()` で実装し、`builtins.ts` には登録しない。
 - **制御フロー** は `throw`/`catch` ではなくフラグ（`_hasRet`、`_retVal`、`_hasBreak`）で実現する。`ReturnStmt` / `BreakStmt` を評価するとフラグを立てて `voidValue()` を返し、呼び出し元（`execBody`、ループ評価、`callFunction`）がフラグを確認して処理を打ち切る。
-- **マルチスレッドノード** はエンジンがシングルスレッドで動作するためシミュレーションとして処理する。`ThreadSpawn` / `ThreadPoolSubmit` はタスクキュー（`ThreadManager`）に積み、`ThreadJoin` / `ThreadPoolWait` 時に同期的に実行する。`ThreadManager.joinTask()` と `waitPool()` はコールバック（`runner`）を受け取り、Evaluator への直接依存を排除している。`mutex_*` / `condvar_*` は no-op。`atomic_*` は通常のヒープ読み書きとして処理する。
+- **並行プリミティブ**（スレッド/ミューテックス/条件変数/アトミック）はすべて `Intrinsic` ノード（`__builtin_thread_*`, `__builtin_mutex_*`, `__builtin_condvar_*`, `__builtin_atomic_*32/64`, `__builtin_atomic_fence`）として表現され、`evalIntrinsic()` 内でハンドリングされる。エンジンはシングルスレッドで動作するためシミュレーションとして処理する: `__builtin_thread_spawn` / `__builtin_threadpool_submit` はタスクキュー（`ThreadManager`）に積み、`__builtin_thread_join` / `__builtin_threadpool_wait` 時に同期的に実行する。`ThreadManager.joinTask()` と `waitPool()` はコールバック（`runner`）を受け取り、Evaluator への直接依存を排除している。`__builtin_mutex_*` / `__builtin_condvar_*` は no-op。`__builtin_atomic_*32/64` は通常のヒープ読み書きとして処理する（`order` は無視）。
 - **`ObjectValue.fields`** は `Map` ではなく `Record<string, RuntimeValue>`（`Object.create(null)` で生成したプロトタイプなし plain object）を使用する。アクセスは `fields["key"]` で行い、`fields.get()` / `fields.set()` は使わない。
 - **`builtins`** は `Map<string, BuiltinFn>` ではなく `Record<string, BuiltinFn>`（`Object.fromEntries([...])` で生成）を使用する。ルックアップは `builtins[name]` で行う。
 - **`__builtin_stdin_readline`** は現バージョンでは未実装（例外をスローする）。
@@ -1184,7 +1009,7 @@ ts-node index.ts output.json
 - **ジェネリクス** は単一化済みのASTを受け取るため、エンジン側では型パラメータを意識しなくてよい。
 - **`__builtin_if` / `__builtin_while`** は引数として `boolean` の ObjectValue を受け取る。`evalIntrinsic` 内でその `bits` フィールド（PrimitiveValue）を `fields["bits"]` で取り出し、`value !== 0` で分岐を判断する。builtins.ts には登録せず、evaluator.ts 内で特別処理する。
 - **`MemberAccess` の代入** は `Assign` ノードの `target` が `MemberAccess` の場合として処理する。`eval` の `Assign` ケースで `target.type === "MemberAccess"` を判定し、対象オブジェクトの `fields[member]` を直接更新する。
-- **`callTopFunction()`** は `ThreadSpawn` / `ThreadPoolSubmit` のコールバック用ヘルパーで、関数名を `this.functions` から引いてグローバルスコープで実行する。
+- **`callTopFunction()`** は `__builtin_thread_spawn` / `__builtin_threadpool_submit` のコールバック用ヘルパーで、関数名を `this.functions` から引いてグローバルスコープで実行する。
 
 ---
 

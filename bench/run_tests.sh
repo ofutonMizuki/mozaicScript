@@ -17,7 +17,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-TESTS=(correct_arith correct_control correct_array correct_recursion correct_classes)
+TESTS=(correct_arith correct_control correct_array correct_recursion correct_classes correct_atomic_api)
 GOLDEN=bench/golden
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT

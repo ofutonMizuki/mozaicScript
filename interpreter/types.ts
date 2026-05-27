@@ -19,25 +19,7 @@ export type ASTNode =
     | BreakStmt
     | BlockStmt
     | RawLiteral
-    | MemberAccess
-    | ThreadSpawn
-    | ThreadJoin
-    | ThreadPoolCreate
-    | ThreadPoolSubmit
-    | ThreadPoolWait
-    | ThreadPoolDestroy
-    | MutexCreate
-    | MutexLock
-    | MutexUnlock
-    | CondVarCreate
-    | CondVarWait
-    | CondVarSignal
-    | CondVarBroadcast
-    | AtomicLoad
-    | AtomicStore
-    | AtomicCas
-    | AtomicFetchAdd
-    | AtomicFetchSub;
+    | MemberAccess;
 
 export interface ImportDecl {
     type: "ImportDecl";
@@ -170,121 +152,6 @@ export interface RawLiteral {
     type: "RawLiteral";
     kind: "int" | "float" | "char";
     value: number;
-}
-
-export interface ThreadSpawn {
-    type: "ThreadSpawn";
-    resolvedType: "_m64";
-    fnName: string;
-    args: ASTNode[];
-}
-
-export interface ThreadJoin {
-    type: "ThreadJoin";
-    resolvedType: "void";
-    threadId: ASTNode;
-}
-
-export interface ThreadPoolCreate {
-    type: "ThreadPoolCreate";
-    resolvedType: "_m64";
-    size: ASTNode;
-}
-
-export interface ThreadPoolSubmit {
-    type: "ThreadPoolSubmit";
-    resolvedType: "void";
-    pool: ASTNode;
-    fnName: string;
-    args: ASTNode[];
-}
-
-export interface ThreadPoolWait {
-    type: "ThreadPoolWait";
-    resolvedType: "void";
-    pool: ASTNode;
-}
-
-export interface ThreadPoolDestroy {
-    type: "ThreadPoolDestroy";
-    resolvedType: "void";
-    pool: ASTNode;
-}
-
-export interface MutexCreate {
-    type: "MutexCreate";
-    resolvedType: "_m64";
-}
-
-export interface MutexLock {
-    type: "MutexLock";
-    resolvedType: "void";
-    mutexId: ASTNode;
-}
-
-export interface MutexUnlock {
-    type: "MutexUnlock";
-    resolvedType: "void";
-    mutexId: ASTNode;
-}
-
-export interface CondVarCreate {
-    type: "CondVarCreate";
-    resolvedType: "_m64";
-}
-
-export interface CondVarWait {
-    type: "CondVarWait";
-    resolvedType: "void";
-    condVar: ASTNode;
-    mutexId: ASTNode;
-}
-
-export interface CondVarSignal {
-    type: "CondVarSignal";
-    resolvedType: "void";
-    condVar: ASTNode;
-}
-
-export interface CondVarBroadcast {
-    type: "CondVarBroadcast";
-    resolvedType: "void";
-    condVar: ASTNode;
-}
-
-export interface AtomicLoad {
-    type: "AtomicLoad";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-}
-
-export interface AtomicStore {
-    type: "AtomicStore";
-    resolvedType: "void";
-    ptr: ASTNode;
-    value: ASTNode;
-}
-
-export interface AtomicCas {
-    type: "AtomicCas";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-    expected: ASTNode;
-    desired: ASTNode;
-}
-
-export interface AtomicFetchAdd {
-    type: "AtomicFetchAdd";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-    value: ASTNode;
-}
-
-export interface AtomicFetchSub {
-    type: "AtomicFetchSub";
-    resolvedType: "_m32";
-    ptr: ASTNode;
-    value: ASTNode;
 }
 
 export interface MozaicScriptAST {

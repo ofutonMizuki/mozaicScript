@@ -208,25 +208,6 @@ export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
     ["__builtin_condvar_signal",    ([_c])     => voidValue()],
     ["__builtin_condvar_broadcast", ([_c])     => voidValue()],
 
-    // atomic は通常のヒープ読み書き（シングルスレッドなので競合なし）
-    ["__builtin_atomic_load",      ([ptr])              => HeapManager.read(v(ptr))],
-    ["__builtin_atomic_store",     ([ptr, val])         => { HeapManager.write(v(ptr), val); return voidValue(); }],
-    ["__builtin_atomic_cas",       ([ptr, exp, des])    => {
-        const cur = HeapManager.read(v(ptr)) as any;
-        if (cur.value === v(exp)) { HeapManager.write(v(ptr), des); return primitive(1); }
-        return primitive(0);
-    }],
-    ["__builtin_atomic_fetch_add", ([ptr, val]) => {
-        const cur = HeapManager.read(v(ptr)) as any;
-        HeapManager.write(v(ptr), primitive(cur.value + v(val)));
-        return primitive(cur.value);
-    }],
-    ["__builtin_atomic_fetch_sub", ([ptr, val]) => {
-        const cur = HeapManager.read(v(ptr)) as any;
-        HeapManager.write(v(ptr), primitive(cur.value - v(val)));
-        return primitive(cur.value);
-    }],
-
     // MemoryOrder 対応アトミック — order パラメータはシングルスレッドでは無視
     // 32bit
     ["__builtin_atomic_load32",      ([ptr, _o])              => HeapManager.read(v(ptr))],

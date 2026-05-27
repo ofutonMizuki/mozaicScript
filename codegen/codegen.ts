@@ -1647,24 +1647,6 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 return "";
             }
 
-            // ── アトミック操作（旧 API：後方互換） ──────────────────────────────
-            case "__builtin_atomic_load":
-                return `(int32_t)__atomic_load_n(&_ms_heap[(int32_t)(${a(0)})], __ATOMIC_SEQ_CST)`;
-            case "__builtin_atomic_store": {
-                pre.push(`__atomic_store_n(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST);`);
-                return "";
-            }
-            case "__builtin_atomic_cas": {
-                const tmp = this.nextTmp();
-                pre.push(`int32_t ${tmp} = (int32_t)(${a(1)});`);
-                pre.push(`__atomic_compare_exchange_n(&_ms_heap[(int32_t)(${a(0)})], &${tmp}, (int32_t)(${a(2)}), 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);`);
-                return tmp;
-            }
-            case "__builtin_atomic_fetch_add":
-                return `(int32_t)__atomic_fetch_add(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST)`;
-            case "__builtin_atomic_fetch_sub":
-                return `(int32_t)__atomic_fetch_sub(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST)`;
-
             // ── アトミック操作（MemoryOrder 対応版） ─────────────────────────────
             // 32bit
             case "__builtin_atomic_load32":

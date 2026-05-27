@@ -257,13 +257,7 @@ const INTRINSIC_JS: Record<string, (...args: string[]) => string> = {
     // パニック
     "__builtin_panic": (s) => `_ms_panic(${s})`,
 
-    // アトミック (シングルスレッド近似)
-    "__builtin_atomic_load":      (p)       => `(_ms_heap[(${p}|0)])`,
-    "__builtin_atomic_store":     (p, v)    => `(_ms_heap[(${p}|0)]=(${v})|0,0)`,
-    "__builtin_atomic_cas":       (p, e, d) => `(_ms_heap[(${p}|0)]===(${e})|0?(_ms_heap[(${p}|0)]=(${d})|0,1):0)`,
-    "__builtin_atomic_fetch_add": (p, v)    => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=(_c+(${v}))|0;return _c;})()`,
-    "__builtin_atomic_fetch_sub": (p, v)    => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=(_c-(${v}))|0;return _c;})()`,
-    // MemoryOrder 対応版 — シングルスレッドのため order は無視
+    // アトミック (シングルスレッド近似) — order はシングルスレッドのため無視
     // 32bit
     "__builtin_atomic_load32":      (p, _o)             => `(_ms_heap[(${p}|0)])`,
     "__builtin_atomic_store32":     (p, v, _o)          => `(_ms_heap[(${p}|0)]=(${v})|0,0)`,
