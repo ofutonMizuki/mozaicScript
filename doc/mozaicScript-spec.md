@@ -745,5 +745,151 @@ const t: string = "she said \"hi\""; // ダブルクォートを含む文字列
 | 項目 | 備考 |
 |------|------|
 | TypeScript Web Worker対応 | ジェネレーター方式で当面対応 |
-| GPU バッファ管理（`GpuBuffer`） | コアライブラリ仕様書 §8 参照（オプション拡張） |
-| GPU カーネル言語（`gpu` 修飾子） | 将来バージョン（WGSL / SPIR-V への変換パス未定） |
+
+---
+
+## 14. GPU カーネル仕様 (GPU Kernels)
+
+本章は GPU 上で実行されるコードの記述規則を定義する。GPU 関連クラスおよびホスト側ディスパッチ API はコアライブラリ仕様書 §8 を参照すること。GPU バックエンドの中間表現は IR 仕様書とは独立して [`mozaicScript-gpu-ir-spec.md`](mozaicScript-gpu-ir-spec.md) で規定する。
+
+### 14.1 適合性 (OPTIONAL)
+
+本章の機能はすべて **OPTIONAL** である。提供しないバックエンドが存在してよい。ただし提供する場合、本仕様書および GPU IR 仕様書の規定に従わなければならない（**MUST**）。
+
+### 14.2 `gpu` 修飾子
+
+関数宣言の先頭に `gpu` 修飾子を付与することで、その関数を **GPU カーネル**として宣言できる。
+
+```typescript
+gpu function vecAdd(
+    out: Ptr<f32>,
+    a: Ptr<f32>,
+    b: Ptr<f32>,
+    n: u32,
+): void {
+    let i: u32 = gpuGlobalId();
+    if (i < n) {
+        out[i] = a[i] + b[i];
+    }
+}
+```
+
+#### 14.2.1 ワークグループサイズ属性
+
+`gpu` 修飾子は属性リストを伴うことができる。属性は丸括弧で囲み、`属性名=値` の形式で記述する。
+
+```typescript
+gpu(workgroupSize=64) function vecAdd(...) { ... }
+gpu(workgroupSize=[16, 16, 1]) function matMul(...) { ... }
+```
+
+| 属性 | 型 | デフォルト | 説明 |
+|------|-----|-----------|------|
+| `workgroupSize` | `u32` または `[u32; 1..3]` | `64` | 1 ワークグループあたりのスレッド数。スカラー値は X 次元、配列は順に X/Y/Z 次元に対応 |
+
+属性値はコンパイル時定数でなければならない（**MUST**）。実行時に計算される値は使用できない（**MUST NOT**）。
+
+#### 14.2.2 アクセス修飾子との組み合わせ
+
+`gpu` 修飾子は `public` / `private` と組み合わせて記述できる。順序は `(public|private) gpu function`。`.moc` のみで使える `mocp public` との組み合わせは禁止する（**MUST NOT**）。
+
+```typescript
+public gpu function vecAdd(...) { ... }   // ✅
+private gpu function helper(...) { ... }  // ✅
+mocp public gpu function ... { ... }      // ❌ エラー
+```
+
+クラスメソッドへの `gpu` 修飾は本バージョンでは禁止する（**MUST NOT**）。GPU 関数はすべてトップレベルでなければならない。
+
+### 14.3 GPU 関数内の制約
+
+`gpu` 関数の本体には以下の制約が適用される（**MUST NOT** を伴うものは違反時にコンパイルエラー）。
+
+#### 14.3.1 使用可能な型
+
+`gpu` 関数の引数・ローカル変数・戻り値で使用可能な型は次に限られる。
+
+| 種別 | 許可される型 |
+|------|------------|
+| 数値 | `i32`, `u32`, `f32`, `i64`, `u64`, `f64`, `boolean` |
+| ポインタ | `Ptr<T>`（`T` は上記数値型または plain class） |
+| 配列 | `Array<T>` のうち、CPU 側で確保され GPU 側で参照のみされるもの。要素アクセスは `arr[i]` 構文で行う |
+| ユーザ定義クラス | フィールドが上記の型のみで構成され、メソッド呼び出しを行わない **plain class**（コンストラクタも禁止） |
+
+`string`, `Result<T>`, `GpuBuffer` などの非自明型は使用禁止である（**MUST NOT**）。
+
+#### 14.3.2 禁止される構文・操作
+
+| 項目 | 規定 |
+|------|------|
+| 再帰呼び出し（直接・間接） | 禁止（**MUST NOT**） |
+| 動的メモリ確保（`new`） | 禁止（**MUST NOT**）。例外: `Ptr<T>` への要素アクセスは `Ptr<T>` 自体の確保ではないので許可 |
+| `__builtin_malloc` / `__builtin_free` 等のヒープ操作 | 禁止（**MUST NOT**） |
+| I/O 関連（`Stdout`, `Stderr`, `Stdin`, `panic`） | 禁止（**MUST NOT**） |
+| スレッド・ミューテックス・条件変数 API | 禁止（**MUST NOT**）。GPU 内同期は §14.4 のバリア命令を使用する |
+| CPU 側アトミック API（`atomicLoad32` 等） | 禁止（**MUST NOT**）。GPU 内アトミックは §14.4 を使用する |
+| `gpu` 関数から非 `gpu` 関数の呼び出し | 禁止（**MUST NOT**）。`gpu` 関数は他の `gpu` 関数または §14.4 の組み込みのみ呼び出せる |
+| 非 `gpu` 関数から `gpu` 関数の直接呼び出し | 禁止（**MUST NOT**）。必ずホスト API（コアライブラリ §8.3 の `gpuDispatch`）経由でディスパッチする |
+| 例外・パニック | 禁止（**MUST NOT**） |
+
+### 14.4 GPU 関数内で利用可能な組み込み関数
+
+以下の組み込み関数は `gpu` 関数内でのみ呼び出せる（**MUST NOT** 外部から呼ぶ）。実装は対応する GPU IR 命令（[GPU IR 仕様書 §4](mozaicScript-gpu-ir-spec.md)）に直接 lower される。
+
+#### 14.4.1 スレッド ID / インデックス取得
+
+| 関数 | 説明 |
+|------|------|
+| `gpuGlobalId(): u32` | グローバルスレッド ID（X 次元のみ）。WGSL の `@builtin(global_invocation_id).x` に相当 |
+| `gpuGlobalIdX(): u32` / `gpuGlobalIdY(): u32` / `gpuGlobalIdZ(): u32` | グローバルスレッド ID の各次元 |
+| `gpuLocalId(): u32` | ワークグループ内ローカル ID（X 次元）。WGSL の `@builtin(local_invocation_id).x` に相当 |
+| `gpuLocalIdX(): u32` / `gpuLocalIdY(): u32` / `gpuLocalIdZ(): u32` | ローカル ID の各次元 |
+| `gpuWorkgroupId(): u32` | ワークグループ ID（X 次元） |
+| `gpuWorkgroupIdX(): u32` / `gpuWorkgroupIdY(): u32` / `gpuWorkgroupIdZ(): u32` | ワークグループ ID の各次元 |
+| `gpuWorkgroupSize(): u32` | カーネルに宣言された `workgroupSize` の X 次元値（コンパイル時定数） |
+
+#### 14.4.2 同期バリア
+
+| 関数 | 説明 |
+|------|------|
+| `gpuBarrier(): void` | ワークグループ内の全スレッドが本関数到達まで待機。WGSL の `workgroupBarrier()` に相当 |
+| `gpuStorageBarrier(): void` | グローバルメモリ（`Ptr<T>` 経由のアクセス）の可視性同期 |
+
+#### 14.4.3 GPU アトミック操作
+
+GPU 内で `Ptr<u32>` / `Ptr<i32>` に対するアトミック操作を行う。CPU 側のアトミック API（コアライブラリ §6.6）とは別 API である。
+
+| 関数 | 説明 |
+|------|------|
+| `gpuAtomicAdd(ptr: Ptr<u32>, val: u32): u32` | アトミック加算（加算前の値を返す） |
+| `gpuAtomicSub(ptr: Ptr<u32>, val: u32): u32` | アトミック減算 |
+| `gpuAtomicMin(ptr: Ptr<u32>, val: u32): u32` | アトミック最小値書き込み |
+| `gpuAtomicMax(ptr: Ptr<u32>, val: u32): u32` | アトミック最大値書き込み |
+| `gpuAtomicCas(ptr: Ptr<u32>, expected: u32, desired: u32): u32` | Compare-And-Swap。古い値を返す |
+| `gpuAtomicLoad(ptr: Ptr<u32>): u32` | アトミックロード |
+| `gpuAtomicStore(ptr: Ptr<u32>, val: u32): void` | アトミックストア |
+
+i32 版は名前末尾に `I32` を付加する（`gpuAtomicAddI32` 等）。メモリ順序は実装が WGSL の `SeqCst` 相当を採用する（**IMPLEMENTATION-DEFINED**）。
+
+#### 14.4.4 ベクトル・行列ユーティリティ
+
+`gpu` 関数内では、`Ptr<T>` を介した配列アクセス以外にベクトル演算組み込みを提供する。これらは GPU IR の SIMD ベクトル型に直接マップされる。
+
+| 関数 | 説明 |
+|------|------|
+| `gpuDotF32x4(a: Ptr<f32>, b: Ptr<f32>): f32` | 4 要素 f32 内積 |
+| `gpuFma(a: f32, b: f32, c: f32): f32` | `a * b + c`（融合積和） |
+
+本セクションのベクトル組み込みは最小セットであり、将来拡張される。
+
+### 14.5 コンパイル時検証
+
+コンパイラは `gpu` 関数本体に対して次の検証を行わなければならない（**MUST**）。
+
+1. §14.3.1 の型制約
+2. §14.3.2 の構文・操作制約
+3. §14.4 以外の組み込み（`__builtin_*` のうち §14.4 にリストされていないもの）の呼び出し禁止
+4. 引数が `Ptr<T>` または上記許可済みスカラー型であること
+5. 戻り値型が `void` であること（**MUST**）。GPU カーネルは値を返さず、結果は `Ptr<T>` 経由で書き戻す
+
+違反はすべてコンパイルエラー（**MUST**）。

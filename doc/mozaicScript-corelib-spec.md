@@ -506,17 +506,88 @@ GPU への所有権移譲は `unmap()` で行い、CPU から GPU へのデー�
 
 | メソッド | 説明 |
 |----------|------|
-| `mapWrite(): Ptr<u8>` | CPU 書き込みアクセス権を要求する。戻り値は書き込み先の先頭アドレス。`unmap()` を呼ぶまで GPU はこのバッファを参照してはならない |
-| `mapRead(): Ptr<u8>` | CPU 読み取りアクセス権を要求する。`unmap()` を呼ぶまで GPU はこのバッファを参照してはならない |
+| `mapWrite<T>(): Ptr<T>` | CPU 書き込みアクセス権を要求する。戻り値は書き込み先の先頭アドレスを型 `T` の `Ptr` として返す。`unmap()` を呼ぶまで GPU はこのバッファを参照してはならない |
+| `mapRead<T>(): Ptr<T>` | CPU 読み取りアクセス権を要求する。戻り値は型 `T` の `Ptr`。`unmap()` を呼ぶまで GPU はこのバッファを参照してはならない |
 | `unmap(): void` | CPU のアクセス権を放棄し、GPU へ所有権を返還する。`mapWrite()` / `mapRead()` が呼ばれていない状態で呼ぶことは禁止（**MUST NOT**） |
 | `byteSize(): u64` | バッファのバイトサイズを返す |
 | `free(): void` | バッファを破棄してメモリを解放する。`mapWrite()` / `mapRead()` 後に `unmap()` を経ずに呼ぶことは禁止（**MUST NOT**） |
 
 `mocp public let handle: _m64` — 内部ハンドル（`.moc` 内専用）
 
-### 8.2 GPU グローバル関数
+### 8.2 GPU グローバル関数（バッファ・能力照会）
 
 | 関数 | 説明 |
 |------|------|
 | `gpuBufferCreate(byteSize: u64): GpuBuffer` | 指定バイトサイズの GPU バッファを確保する |
 | `gpuIsAvailable(): boolean` | GPU バックエンドが利用可能かどうかを返す。`FALSE` を返す環境では他の GPU 関数を呼んではならない（**MUST NOT**） |
+
+### 8.3 GPU カーネルディスパッチ API
+
+`gpu` 修飾子付き関数（言語仕様書 §14）を GPU 上で実行するためのホスト側 API。
+
+#### 8.3.1 `GpuKernel`
+
+`gpu` 関数への型付き参照。直接インスタンス化することはできず、コンパイラが `gpu` 関数宣言ごとにグローバルスコープに同名の `GpuKernel` 定数を自動生成する（**MUST**）。例えば
+
+```typescript
+gpu function vecAdd(out: Ptr<f32>, a: Ptr<f32>, b: Ptr<f32>, n: u32): void { ... }
+```
+
+を宣言すると、コンパイラは次の宣言を暗黙に追加する。
+
+```typescript
+public let vecAdd: GpuKernel;   // 同名の GpuKernel 定数
+```
+
+ユーザコードは `vecAdd` を `gpuDispatch()` の第 1 引数として直接渡せる。
+
+| メソッド | 説明 |
+|----------|------|
+| `name(): string` | カーネル関数名を返す（デバッグ用） |
+| `workgroupSizeX(): u32` | 宣言された `workgroupSize` の X 次元値を返す |
+| `workgroupSizeY(): u32` | Y 次元値を返す（未指定時は `1`） |
+| `workgroupSizeZ(): u32` | Z 次元値を返す（未指定時は `1`） |
+
+`mocp public let handle: _m64` — 内部ハンドル
+
+#### 8.3.2 `GpuArgs`
+
+`gpuDispatch()` に渡す引数束。`gpu` 関数の引数列を順に格納する型付きビルダー。
+
+```typescript
+let args: GpuArgs = new GpuArgs();
+args.pushBuffer(outBuf);       // Ptr<T> 引数（GpuBuffer の先頭アドレスに lower）
+args.pushBuffer(aBuf);
+args.pushBuffer(bBuf);
+args.pushU32(new u32(1024));   // スカラー引数
+```
+
+| メソッド | 説明 |
+|----------|------|
+| `pushBuffer(buf: GpuBuffer): void` | バッファ参照を引数として追加。カーネル側の `Ptr<T>` 引数に対応 |
+| `pushI32(v: i32): void` / `pushU32(v: u32): void` / `pushI64(v: i64): void` / `pushU64(v: u64): void` | 整数スカラーを追加 |
+| `pushF32(v: f32): void` / `pushF64(v: f64): void` | 浮動小数点スカラーを追加 |
+| `pushBoolean(v: boolean): void` | 真偽値スカラーを追加 |
+| `count(): u32` | 現在登録されている引数数 |
+| `clear(): void` | 内部バッファを空にする（再利用用） |
+
+引数の **順序・型は宣言時のカーネル関数シグネチャと一致しなければならない**（**MUST**）。ランタイムは型不一致を検出した場合パニックを発行する（**MUST**）。
+
+#### 8.3.3 ディスパッチ関数
+
+| 関数 | 説明 |
+|------|------|
+| `gpuDispatch(kernel: GpuKernel, args: GpuArgs, gridX: u32, gridY: u32, gridZ: u32): void` | 指定カーネルを `gridX × gridY × gridZ` 個のワークグループでディスパッチする。実際の起動スレッド総数は `grid * workgroupSize` 個 |
+| `gpuDispatch1D(kernel: GpuKernel, args: GpuArgs, gridX: u32): void` | `gpuDispatch(kernel, args, gridX, new u32(1), new u32(1))` のシンタックスシュガー |
+| `gpuSync(): void` | キューに積まれた全 GPU ディスパッチの完了を待機する。CPU ホストから GPU 結果バッファを `mapRead()` する前に呼ぶこと（**MUST**） |
+| `gpuFlush(): void` | 未送出のディスパッチを GPU に送信するが、完了は待たない |
+
+#### 8.3.4 実行モデル
+
+- `gpuDispatch()` は **非同期**である。呼び出しから戻った時点でカーネル実行の完了は保証されない。
+- ディスパッチ完了を確実に待つ場合は `gpuSync()` を使う。
+- 同一バッファに対する読み書きの順序保証は、同一キュー内でのディスパッチ順 + `gpuSync()` のみによる。複数バッファ間の依存性追跡は実装定義（**IMPLEMENTATION-DEFINED**）。
+
+#### 8.3.5 GPU 関数の直接呼び出し禁止
+
+`gpu` 関数を通常の関数呼び出し構文（`vecAdd(out, a, b, n)`）で呼ぶことは禁止する（**MUST NOT**）。コンパイラはこれを検出してコンパイルエラーを発する（**MUST**）。GPU 関数は必ず `gpuDispatch()` 経由で起動しなければならない。
