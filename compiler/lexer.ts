@@ -1,7 +1,7 @@
 // compiler/lexer.ts — mozaicScript 字句解析器
 
 export type TK =
-    | 'import' | 'as' | 'type' | 'class' | 'function'
+    | 'import' | 'as' | 'type' | 'class' | 'function' | 'mut' | 'gpu'
     | 'let' | 'const' | 'return' | 'break'
     | 'if' | 'else' | 'while' | 'for' | 'new' | 'this'
     | 'constructor' | 'public' | 'private' | 'mocp' | 'protected'
@@ -9,7 +9,7 @@ export type TK =
     | 'intlit' | 'floatlit' | 'strlit'
     | '(' | ')' | '{' | '}' | '[' | ']'
     | '.' | ',' | ':' | ';'
-    | '+' | '-' | '*' | '/' | '%'
+    | '+' | '-' | '*' | '/' | '%' | '&'
     | '=' | '==' | '!=' | '<' | '>' | '<=' | '>='
     | '||' | '&&' | '!'
     | 'ident'
@@ -24,7 +24,7 @@ export interface Token {
 
 // Object.create(null) でプロトタイプなしオブジェクトを作成 (constructor キーの衝突を回避)
 const KEYWORDS = Object.assign(Object.create(null), {
-    import: 'import' as TK, as: 'as' as TK, type: 'type' as TK, class: 'class' as TK, function: 'function' as TK,
+    import: 'import' as TK, as: 'as' as TK, type: 'type' as TK, class: 'class' as TK, function: 'function' as TK, mut: 'mut' as TK, gpu: 'gpu' as TK,
     let: 'let' as TK, const: 'const' as TK, return: 'return' as TK, break: 'break' as TK,
     if: 'if' as TK, else: 'else' as TK, while: 'while' as TK, for: 'for' as TK, new: 'new' as TK, this: 'this' as TK,
     constructor: 'constructor' as TK, public: 'public' as TK, private: 'private' as TK,
@@ -172,7 +172,7 @@ export function lex(src: string, filename: string): Token[] {
                 break;
             case '&':
                 if (src[i] === '&') { advance(); tokens.push(tok('&&', '&&', l, c)); }
-                else throw new LexError(`Unexpected character '&'`, l, c, filename);
+                else tokens.push(tok('&', ch, l, c));
                 break;
             default:
                 throw new LexError(`Unexpected character '${ch}'`, l, c, filename);

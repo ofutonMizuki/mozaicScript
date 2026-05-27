@@ -66,6 +66,17 @@ class Parser {
     // ── 型パース ─────────────────────────────────────────────────────────
 
     private parseType(): A.PType {
+        let isRef = false;
+        let isMut = false;
+        if (this.at('&')) {
+            this.advance(); // &
+            isRef = true;
+            if (this.at('mut')) {
+                this.advance(); // mut
+                isMut = true;
+            }
+        }
+        
         const name = this.peek();
         if (name.kind !== 'ident') this.error(`Expected type name but got '${name.kind}'`);
         this.advance();
@@ -76,7 +87,7 @@ class Parser {
             typeName = typeName + '.' + this.eatIdent().value;
         }
         const args = this.tryParseTypeArgs() ?? [];
-        return { name: typeName, args };
+        return { name: typeName, args, isRef, isMut };
     }
 
     // '<' TypeArg (',' TypeArg)* '>' をパース。失敗したら null を返しバックトラック
@@ -156,10 +167,15 @@ class Parser {
             const params = this.parseParams();
             const body = this.parseBlock();
             return {
-                kind: 'method', access, name: 'constructor',
+                kind: 'method', access, isMut: false, isGpu: false, name: 'constructor',
                 typeParams: [], params, returnType: { name: 'void', args: [] }, body, pos
             };
         }
+
+        let isMut = false;
+        let isGpu = false;
+        if (this.at('mut')) { this.advance(); isMut = true; }
+        if (this.at('gpu')) { this.advance(); isGpu = true; }
 
         // 通常メソッド（function キーワードあり）
         if (this.at('function')) {
@@ -170,7 +186,7 @@ class Parser {
             this.eat(':');
             const returnType = this.parseType();
             const body = this.parseBlock();
-            return { kind: 'method', access, name, typeParams, params, returnType, body, pos };
+            return { kind: 'method', access, isMut, isGpu, name, typeParams, params, returnType, body, pos };
         }
 
         // 演算子メソッド（function キーワードなし）
@@ -180,7 +196,7 @@ class Parser {
         this.eat(':');
         const returnType = this.parseType();
         const body = this.parseBlock();
-        return { kind: 'method', access, name, typeParams, params, returnType, body, pos };
+        return { kind: 'method', access, isMut, isGpu, name, typeParams, params, returnType, body, pos };
     }
 
     // 通常メソッド名（function の後）
@@ -262,6 +278,12 @@ class Parser {
 
     private parseFunctionDecl(access: A.PAccessMod): A.PFunctionDecl {
         const pos = this.pos2();
+        
+        let isMut = false;
+        let isGpu = false;
+        if (this.at('mut')) { this.advance(); isMut = true; }
+        if (this.at('gpu')) { this.advance(); isGpu = true; }
+        
         this.eat('function');
         const name = this.eatIdent().value;
         const typeParams = this.parseTypeParamList();
@@ -269,7 +291,7 @@ class Parser {
         this.eat(':');
         const returnType = this.parseType();
         const body = this.parseBlock();
-        return { kind: 'function', access, name, typeParams, params, returnType, body, pos };
+        return { kind: 'function', access, isMut, isGpu, name, typeParams, params, returnType, body, pos };
     }
 
     // ── ブロック・文 ─────────────────────────────────────────────────────
@@ -499,6 +521,15 @@ class Parser {
 
     private parseUnary(): A.PExpr {
         const pos = this.pos2();
+        if (this.at('&' as TK)) {
+            this.advance();
+            let isMut = false;
+            if (this.at('mut' as TK)) {
+                this.advance();
+                isMut = true;
+            }
+            return { kind: 'borrow', isMut, expr: this.parseUnary(), pos };
+        }
         if (this.at('!')) { this.advance(); return { kind: 'unary', op: '!', expr: this.parseUnary(), pos }; }
         if (this.at('-')) { this.advance(); return { kind: 'unary', op: '-', expr: this.parseUnary(), pos }; }
         return this.parsePostfix();

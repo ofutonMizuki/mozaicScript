@@ -5,6 +5,8 @@ export interface Pos { line: number; col: number; file: string; }
 export interface PType {
     name: string;   // "i32", "Array", "_m32", etc.
     args: PType[];  // ジェネリクス引数
+    isRef?: boolean; // & 参照
+    isMut?: boolean; // mut (参照の場合 &mut、メソッドの場合 mut)
 }
 
 export type PAccessMod = "public" | "private" | "mocp public";
@@ -16,8 +18,10 @@ export type PExpr =
     | PCallExpr | PMethodCallExpr
     | PIndexExpr | PMemberExpr
     | PIdentExpr | PThisExpr
-    | PIntLit | PFloatLit | PStrLit | PBoolLit;
+    | PIntLit | PFloatLit | PStrLit | PBoolLit
+    | PBorrowExpr;
 
+export interface PBorrowExpr     { kind: 'borrow';     isMut: boolean; expr: PExpr; pos: Pos; }
 export interface PBinExpr        { kind: 'bin';        op: string; left: PExpr; right: PExpr; pos: Pos; }
 export interface PUnaryExpr      { kind: 'unary';      op: string; expr: PExpr; pos: Pos; }
 export interface PNewExpr        { kind: 'new';        type: PType; args: PExpr[]; pos: Pos; }
@@ -65,6 +69,8 @@ export interface PFieldDecl {
 export interface PMethodDecl {
     kind: 'method';
     access: PAccessMod;
+    isMut: boolean;
+    isGpu: boolean;
     name: string;        // "constructor" / "operator+" / "operatorNot" / 通常名
     typeParams: string[];
     params: { name: string; type: PType }[];
@@ -89,6 +95,8 @@ export interface PClassDecl {
 export interface PFunctionDecl {
     kind: 'function';
     access: PAccessMod;
+    isMut: boolean;
+    isGpu: boolean;
     name: string;
     typeParams: string[];
     params: { name: string; type: PType }[];

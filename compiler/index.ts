@@ -14,6 +14,7 @@ import * as path from 'path';
 import { lex, LexError } from './lexer';
 import { parse, ParseError } from './parser';
 import { Checker, CheckError, emptyRegistry } from './checker';
+import { BorrowChecker, BorrowError } from './borrowcheck';
 import { Optimizer, OptLevel } from './optimizer';
 import { MozaicScriptAST } from '../interpreter/types';
 
@@ -98,6 +99,10 @@ for (const { filePath } of order) {
         const checker = new Checker(registry);
         const nodes  = checker.check(pfile);
 
+        // 借用チェック & drop/__builtin_free 自動挿入 (Phase 3)
+        const borrowChecker = new BorrowChecker(registry);
+        borrowChecker.check(nodes);
+
         const optimizer = new Optimizer(registry, optLevel);
         const optimized = optimizer.optimize(nodes);
 
@@ -107,8 +112,8 @@ for (const { filePath } of order) {
         const optTag = optLevel === 2 ? '' : ` [-O${optLevel}]`;
         console.log(`  ✓  ${path.relative(process.cwd(), outPath)}${optTag}`);
     } catch (e) {
-        if (e instanceof LexError || e instanceof ParseError || e instanceof CheckError) {
-            console.error(e.message);
+        if (e instanceof LexError || e instanceof ParseError || e instanceof CheckError || e instanceof BorrowError) {
+            console.error(`${filePath}: ${e.message}`);
             hasError = true;
         } else {
             throw e;

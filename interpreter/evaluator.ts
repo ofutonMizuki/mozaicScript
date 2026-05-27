@@ -100,6 +100,11 @@ export class Evaluator {
 
     private eval(node: ASTNode, env: Environment): RuntimeValue {
         switch (node.type) {
+            case "BorrowExpr": {
+                // ゼロコスト借用：新しいオブジェクトを生成せず、対象の参照をそのまま返す
+                return this.eval(node.expr, env);
+            }
+
             case "VarDecl": {
                 const value = this.eval(node.value, env);
                 env.define(node.name, value);

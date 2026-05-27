@@ -179,7 +179,14 @@ export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
 
     // ── メモリ管理 ────────────────────────────────────────────────────────────
     ["__builtin_malloc", ([size]) => primitive(HeapManager.alloc(v(size)))],
-    ["__builtin_free",   ([ptr])  => { HeapManager.free(v(ptr)); return voidValue(); }],
+    ["__builtin_free",   ([ptr])  => {
+        // 借用チェッカーが自動挿入する free はオブジェクト参照を受け取る場合がある
+        // (JS の GC が回収するため interpreter としてはノーオペ)。
+        // 生のヒープアドレス (_m32) なら HeapManager から削除する。
+        const x = ptr as any;
+        if (x && x.kind === 'primitive') HeapManager.free(x.value);
+        return voidValue();
+    }],
     ["__builtin_mem_read8",  ([ptr, off]) => HeapManager.read(v(ptr) + v(off))],
     ["__builtin_mem_read16", ([ptr, off]) => HeapManager.read(v(ptr) + v(off))],
     ["__builtin_mem_read32", ([ptr, off]) => HeapManager.read(v(ptr) + v(off))],

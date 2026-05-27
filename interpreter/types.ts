@@ -19,7 +19,15 @@ export type ASTNode =
     | BreakStmt
     | BlockStmt
     | RawLiteral
-    | MemberAccess;
+    | MemberAccess
+    | BorrowExpr;
+
+export interface BorrowExpr {
+    type: "BorrowExpr";
+    isMut: boolean;
+    expr: ASTNode;
+    resolvedType: string;
+}
 
 export interface ImportDecl {
     type: "ImportDecl";
@@ -53,6 +61,8 @@ export interface FunctionDecl {
     type: "FunctionDecl";
     name: string;
     access: AccessModifier;
+    isMut: boolean;
+    isGpu?: boolean;
     typeParams: string[];
     params: { name: string; resolvedType: string }[];
     returnType: string;

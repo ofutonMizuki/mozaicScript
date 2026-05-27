@@ -110,11 +110,35 @@ const BUILTIN_RET: Record<string, string> = {
     __builtin_condvar_wait:        'void',
     __builtin_condvar_signal:      'void',
     __builtin_condvar_broadcast:   'void',
-    __builtin_atomic_load:         '_m32',
-    __builtin_atomic_store:        'void',
-    __builtin_atomic_cas:          '_m32',
-    __builtin_atomic_fetch_add:    '_m32',
-    __builtin_atomic_fetch_sub:    '_m32',
+    // GPU バッファ・能力照会（コアライブラリ §8.2）
+    __builtin_gpu_buffer_create:           '_m64',
+    __builtin_gpu_is_available:            '_m32',
+    __builtin_gpu_buffer_map_write:        '_m32',
+    __builtin_gpu_buffer_map_read:         '_m32',
+    __builtin_gpu_buffer_unmap:            'void',
+    __builtin_gpu_buffer_byte_size:        '_m64',
+    __builtin_gpu_buffer_free:             'void',
+    // GPU カーネル（§8.3.1）
+    __builtin_gpu_kernel_name:             'string',
+    __builtin_gpu_kernel_workgroup_size_x: '_m32',
+    __builtin_gpu_kernel_workgroup_size_y: '_m32',
+    __builtin_gpu_kernel_workgroup_size_z: '_m32',
+    // GPU 引数ビルダー（§8.3.2）
+    __builtin_gpu_args_create:             '_m64',
+    __builtin_gpu_args_push_buffer:        'void',
+    __builtin_gpu_args_push_i32:           'void',
+    __builtin_gpu_args_push_u32:           'void',
+    __builtin_gpu_args_push_i64:           'void',
+    __builtin_gpu_args_push_u64:           'void',
+    __builtin_gpu_args_push_f32:           'void',
+    __builtin_gpu_args_push_f64:           'void',
+    __builtin_gpu_args_push_boolean:       'void',
+    __builtin_gpu_args_count:              '_m32',
+    __builtin_gpu_args_clear:              'void',
+    // GPU ディスパッチ（§8.3.3）
+    __builtin_gpu_dispatch:                'void',
+    __builtin_gpu_sync:                    'void',
+    __builtin_gpu_flush:                   'void',
 };
 
 // ── ヘルパー ──────────────────────────────────────────────────────────────────
@@ -188,13 +212,9 @@ interface CheckCtx {
 export class Checker {
     constructor(private reg: Registry) {}
 
-    // §6.6: this を引数として渡すことを禁止する
-    private rejectThisArgs(args: A.PExpr[]): void {
-        for (const a of args) {
-            if (a.kind === 'this') {
-                throw new CheckError(`this を引数として渡すことはできません (§6.6)`, a.pos);
-            }
-        }
+    // §6.6: this を引数として渡すことを禁止する（所有権システム導入で借用チェッカーへ委譲）
+    private rejectThisArgs(_args: A.PExpr[]): void {
+        // 何もしない（借用チェッカーが安全性を検証する）
     }
 
     // ファイル全体を検査して IR ノードを返す
@@ -251,6 +271,7 @@ export class Checker {
                 }));
                 this.reg.funcEnv.set(decl.name, {
                     type: 'FunctionDecl', name: decl.name, access: decl.access,
+                    isMut: decl.isMut, isGpu: decl.isGpu,
                     typeParams: decl.typeParams, params,
                     returnType: this.resolveType(decl.returnType, isMoc),
                     body: [],
@@ -326,6 +347,7 @@ export class Checker {
             }));
             methods.push({
                 type: 'FunctionDecl', name: m.name, access: m.access,
+                isMut: m.isMut, isGpu: m.isGpu,
                 typeParams: m.typeParams, params,
                 returnType: this.resolveType(m.returnType, isMoc),
                 body: [],
@@ -345,8 +367,9 @@ export class Checker {
             for (const p of stub.params) {
                 locals.set(p.name, { type: p.resolvedType, mut: true });
             }
+            const actualThisType = m.name === 'constructor' ? `&mut ${thisType}` : (m.isMut ? `&mut ${thisType}` : `&${thisType}`);
             const ctx: CheckCtx = {
-                isMoc, locals, thisType, returnType: stub.returnType, inLitCtx: false,
+                isMoc, locals, thisType: actualThisType, returnType: stub.returnType, inLitCtx: false,
             };
             stub.body = this.checkBody(m.body, ctx);
         }
@@ -371,6 +394,7 @@ export class Checker {
 
         return {
             type: 'FunctionDecl', name: decl.name, access: decl.access,
+            isMut: decl.isMut, isGpu: decl.isGpu,
             typeParams: decl.typeParams, params, returnType, body,
         };
     }
@@ -413,8 +437,7 @@ export class Checker {
                     const obj = this.checkExpr((stmt.target as A.PIndexExpr).obj, ctx);
                     const idx = this.checkExpr((stmt.target as A.PIndexExpr).index, ctx);
                     const val = this.checkExpr(stmt.value, ctx);
-                    const rt = this.methodReturnType(resolvedType(obj), 'operator_set[]');
-                    return { type: 'MethodCall', resolvedType: rt, receiver: obj, method: 'operator_set[]', args: [idx, val] };
+                    return this.makeCall(obj, 'operator_set[]', [idx, val], resolvedType(obj));
                 }
                 return { type: 'Assign', target: this.checkExpr(stmt.target, ctx), value: this.checkExpr(stmt.value, ctx) };
             }
@@ -465,8 +488,8 @@ export class Checker {
                         const obj = this.checkExpr((upd.target as A.PIndexExpr).obj, forCtx);
                         const idx = this.checkExpr((upd.target as A.PIndexExpr).index, forCtx);
                         const val = this.checkExpr(upd.value, forCtx);
-                        const rt = this.methodReturnType(resolvedType(obj), 'operator_set[]');
-                        update = { type: 'MethodCall', resolvedType: rt, receiver: obj, method: 'operator_set[]', args: [idx, val] };
+                        const objType = resolvedType(obj);
+                        update = this.makeCall(obj, 'operator_set[]', [idx, val], objType);
                     } else {
                         update = { type: 'Assign', target: this.checkExpr(upd.target, forCtx), value: this.checkExpr(upd.value, forCtx) };
                     }
@@ -549,12 +572,23 @@ export class Checker {
                 return { type: 'NewExpr', resolvedType: rt, args };
             }
 
+            case 'borrow': {
+                const operand = this.checkExpr(expr.expr, ctx);
+                const rt = resolvedType(operand);
+                const prefix = expr.isMut ? '&mut ' : '&';
+                return {
+                    type: 'BorrowExpr',
+                    isMut: expr.isMut,
+                    expr: operand,
+                    resolvedType: `${prefix}${rt}`
+                };
+            }
+
             case 'unary': {
                 const operand = this.checkExpr(expr.expr, ctx);
                 const recvType = resolvedType(operand);
                 if (expr.op === '!') {
-                    const rt = this.methodReturnType(recvType, 'operatorNot');
-                    return { type: 'MethodCall', resolvedType: rt, receiver: operand, method: 'operatorNot', args: [] };
+                    return this.makeCall(operand, 'operatorNot', [], recvType);
                 }
                 if (expr.op === '-') {
                     // リテラルコンテキスト内の負数リテラル: RawLiteral を直接否定
@@ -563,13 +597,12 @@ export class Checker {
                     }
                     // 単項マイナスは negate() メソッドへ脱糖（§6.5）。
                     // negate を持たない型（u32/u64 等）はここでコンパイルエラーにする
-                    const baseName = recvType.replace(/<.*>$/, '');
+                    const baseName = recvType.replace(/^&mut\s+|^&/, '').replace(/<.*>$/, '');
                     const cls = this.reg.classEnv.get(baseName);
                     if (!cls || !cls.methods.some(m => m.name === 'negate')) {
                         throw new CheckError(`型 '${recvType}' は単項マイナス（negate メソッド）に対応していません`, expr.pos);
                     }
-                    const rt = this.methodReturnType(recvType, 'negate');
-                    return { type: 'MethodCall', resolvedType: rt, receiver: operand, method: 'negate', args: [] };
+                    return this.makeCall(operand, 'negate', [], recvType);
                 }
                 throw new CheckError(`未知の単項演算子 '${expr.op}'`, expr.pos);
             }
@@ -663,16 +696,14 @@ export class Checker {
                 const objType = resolvedType(obj);
                 this.rejectThisArgs(expr.args);
                 const args = expr.args.map(a => this.checkExpr(a, ctx));
-                const rt = this.methodReturnType(objType, expr.method);
-                return { type: 'MethodCall', resolvedType: rt, receiver: obj, method: expr.method, args };
+                return this.makeCall(obj, expr.method, args, objType);
             }
 
             case 'index': {
                 // a[i] → operator[]
                 const obj = this.checkExpr(expr.obj, ctx);
                 const idx = this.checkExpr(expr.index, ctx);
-                const rt = this.methodReturnType(resolvedType(obj), 'operator[]');
-                return { type: 'MethodCall', resolvedType: rt, receiver: obj, method: 'operator[]', args: [idx] };
+                return this.makeCall(obj, 'operator[]', [idx], resolvedType(obj));
             }
 
             case 'member': {
@@ -692,33 +723,40 @@ export class Checker {
         if (MOC_ONLY.includes(simpleName) && !isMoc) {
             throw new CheckError(`型 '${simpleName}' は .moc ファイル内でのみ使用可能`);
         }
+        
+        let name = simpleName;
         if (pt.args.length === 0) {
             // エイリアス展開（連鎖対応）
-            let name = simpleName;
             const seen = new Set<string>();
             while (this.reg.typeAliases.has(name) && !seen.has(name)) {
                 seen.add(name);
                 name = this.reg.typeAliases.get(name)!;
             }
-            return name;
+        } else {
+            // ジェネリクス型
+            const resolvedArgs = pt.args.map(a => this.resolveType(a, isMoc));
+            name = `${simpleName}<${resolvedArgs.join(',')}>`;
         }
-        // ジェネリクス型
-        const resolvedArgs = pt.args.map(a => this.resolveType(a, isMoc));
-        return `${simpleName}<${resolvedArgs.join(',')}>`;
+
+        if (pt.isRef) {
+            return pt.isMut ? `&mut ${name}` : `&${name}`;
+        }
+        return name;
     }
 
     // ── メソッド戻り型取得 ────────────────────────────────────────────────────
 
     private methodReturnType(receiverType: string, methodName: string): string {
-        const lt = receiverType.indexOf('<');
-        const baseName = lt === -1 ? receiverType : receiverType.slice(0, lt);
+        const cleanType = receiverType.replace(/^&mut\s+|^&/, '');
+        const lt = cleanType.indexOf('<');
+        const baseName = lt === -1 ? cleanType : cleanType.slice(0, lt);
         const cls = this.reg.classEnv.get(baseName);
         if (!cls) return 'void';
 
         // 型パラメータ代入マップを構築
         const subst = new Map<string, string>();
         if (lt !== -1 && cls.typeParams.length > 0) {
-            const inner = receiverType.slice(lt + 1, receiverType.lastIndexOf('>'));
+            const inner = cleanType.slice(lt + 1, cleanType.lastIndexOf('>'));
             splitTypeArgs(inner).forEach((arg, i) => {
                 if (cls.typeParams[i]) subst.set(cls.typeParams[i], arg);
             });
@@ -732,14 +770,15 @@ export class Checker {
     // ── フィールド型取得 ──────────────────────────────────────────────────────
 
     private fieldType(receiverType: string, fieldName: string): string {
-        const lt = receiverType.indexOf('<');
-        const baseName = lt === -1 ? receiverType : receiverType.slice(0, lt);
+        const cleanType = receiverType.replace(/^&mut\s+|^&/, '');
+        const lt = cleanType.indexOf('<');
+        const baseName = lt === -1 ? cleanType : cleanType.slice(0, lt);
         const cls = this.reg.classEnv.get(baseName);
         if (!cls) return '_m32';
 
         const subst = new Map<string, string>();
         if (lt !== -1 && cls.typeParams.length > 0) {
-            const inner = receiverType.slice(lt + 1, receiverType.lastIndexOf('>'));
+            const inner = cleanType.slice(lt + 1, cleanType.lastIndexOf('>'));
             splitTypeArgs(inner).forEach((arg, i) => {
                 if (cls.typeParams[i]) subst.set(cls.typeParams[i], arg);
             });
@@ -752,11 +791,38 @@ export class Checker {
 
     // ── MethodCall ノード生成ヘルパー ─────────────────────────────────────────
 
-    private makeCall(receiver: IR.ASTNode, method: string, args: IR.ASTNode[], receiverType: string): IR.MethodCall {
+    private makeCall(receiver: IR.ASTNode, method: string, args: IR.ASTNode[], receiverType: string, isNamespaceFn: boolean = false): IR.MethodCall {
+        const rt = this.methodReturnType(receiverType, method);
+        if (isNamespaceFn) {
+            return { type: 'MethodCall', resolvedType: rt, receiver, method, args };
+        }
+
+        const isAlreadyRef = receiverType.startsWith('&');
+        const cleanType = receiverType.replace(/^&mut\s+|^&/, '');
+        const lt = cleanType.indexOf('<');
+        const baseName = lt === -1 ? cleanType : cleanType.slice(0, lt);
+        const cls = this.reg.classEnv.get(baseName);
+
+        let finalReceiver = receiver;
+        if (cls && !isAlreadyRef) {
+            // §3.3 自動レシーバーバインド: 所有権値 (T) のみ自動で &/&mut を付与する。
+            // 既に参照型 (&T / &mut T) の値は再ラップしない（&&T を防ぐ）。
+            const m = cls.methods.find(m => m.name === method);
+            if (m) {
+                const prefix = m.isMut ? '&mut ' : '&';
+                finalReceiver = {
+                    type: 'BorrowExpr',
+                    isMut: m.isMut,
+                    expr: receiver,
+                    resolvedType: `${prefix}${cleanType}`
+                };
+            }
+        }
+
         return {
             type: 'MethodCall',
-            resolvedType: this.methodReturnType(receiverType, method),
-            receiver, method, args,
+            resolvedType: rt,
+            receiver: finalReceiver, method, args,
         };
     }
 }

@@ -12,15 +12,24 @@ import { ASTNode, ClassDecl, FunctionDecl, MozaicScriptAST } from "../interprete
 
 // ── 型ユーティリティ ──────────────────────────────────────────────────────────
 
+// 参照修飾子 (& / &mut) を剥がす。コード生成時には参照と所有権の区別は消える
+function stripRef(t: string): string {
+    if (t.startsWith("&mut ")) return t.slice(5);
+    if (t.startsWith("&"))     return t.slice(1);
+    return t;
+}
+
 function baseType(t: string): string {
-    const lt = t.indexOf("<");
-    return lt === -1 ? t : t.slice(0, lt);
+    const s = stripRef(t);
+    const lt = s.indexOf("<");
+    return lt === -1 ? s : s.slice(0, lt);
 }
 
 function typeArgs(t: string): string[] {
-    const lt = t.indexOf("<");
+    const s = stripRef(t);
+    const lt = s.indexOf("<");
     if (lt === -1) return [];
-    const inner = t.slice(lt + 1, t.lastIndexOf(">"));
+    const inner = s.slice(lt + 1, s.lastIndexOf(">"));
     const res: string[] = [];
     let depth = 0, start = 0;
     for (let i = 0; i < inner.length; i++) {
@@ -37,11 +46,12 @@ function typeArgs(t: string): string[] {
 }
 
 function applySubst(t: string, subst: Map<string, string>): string {
-    const direct = subst.get(t);
+    const stripped = stripRef(t);
+    const direct = subst.get(stripped);
     if (direct !== undefined) return direct;
-    const base = baseType(t);
-    const args = typeArgs(t);
-    if (args.length === 0) return t;
+    const base = baseType(stripped);
+    const args = typeArgs(stripped);
+    if (args.length === 0) return stripped;
     return `${base}<${args.map(a => applySubst(a, subst)).join(",")}>`;
 }
 
@@ -400,6 +410,9 @@ export class JSCodegen {
                 break;
             case "MemberAccess":
                 this.scanNode(node.receiver, tp);
+                break;
+            case "BorrowExpr":
+                this.scanNode((node as any).expr, tp);
                 break;
             case "VarDecl":
                 this.scanNode(node.value, tp);
@@ -839,6 +852,10 @@ function _ms_tp_destroy(p) { _ms_tpools.delete(p); }`;
                 const args = (node as any).args.map((a: ASTNode) => this.emitExpr(a, pre, typeEnv, subst));
                 return tmpl(...args);
             }
+
+            case "BorrowExpr":
+                // ゼロコスト借用: JS では値そのもの (number / object) を透過
+                return this.emitExpr((node as any).expr, pre, typeEnv, subst);
 
             default:
                 return "0";

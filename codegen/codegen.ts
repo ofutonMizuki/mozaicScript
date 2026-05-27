@@ -8,15 +8,25 @@ import {
 
 // ── 型ユーティリティ ──────────────────────────────────────────────────────────
 
+// 参照修飾子 (& / &mut) を剥がす。コード生成時には参照と所有権の区別は消える
+// （借用チェッカーがフロントエンドで安全性を保証済みのため）
+function stripRef(mozType: string): string {
+    if (mozType.startsWith("&mut ")) return mozType.slice(5);
+    if (mozType.startsWith("&"))     return mozType.slice(1);
+    return mozType;
+}
+
 function baseType(mozType: string): string {
-    const lt = mozType.indexOf("<");
-    return lt === -1 ? mozType : mozType.slice(0, lt);
+    const t = stripRef(mozType);
+    const lt = t.indexOf("<");
+    return lt === -1 ? t : t.slice(0, lt);
 }
 
 function typeArgs(mozType: string): string[] {
-    const lt = mozType.indexOf("<");
+    const t = stripRef(mozType);
+    const lt = t.indexOf("<");
     if (lt === -1) return [];
-    const inner = mozType.slice(lt + 1, mozType.lastIndexOf(">"));
+    const inner = t.slice(lt + 1, t.lastIndexOf(">"));
     const result: string[] = [];
     let depth = 0, start = 0;
     for (let i = 0; i < inner.length; i++) {
@@ -33,11 +43,12 @@ function typeArgs(mozType: string): string[] {
 }
 
 function applySubst(mozType: string, subst: Map<string, string>): string {
-    const direct = subst.get(mozType);
+    const stripped = stripRef(mozType);
+    const direct = subst.get(stripped);
     if (direct !== undefined) return direct;
-    const base = baseType(mozType);
-    const args = typeArgs(mozType);
-    if (args.length === 0) return mozType;
+    const base = baseType(stripped);
+    const args = typeArgs(stripped);
+    if (args.length === 0) return stripped;
     return `${base}<${args.map(a => applySubst(a, subst)).join(",")}>`;
 }
 
@@ -161,6 +172,24 @@ export class CCodegen {
         return this.isRef(t) ? `${cStructName(t)}*` : cStructName(t);
     }
 
+    // mozaicScript 参照型 (&T / &mut T) を考慮した C パラメータ型表記
+    // - &T (ref オブジェクト) → const _ms_T*
+    // - &mut T (ref オブジェクト) → _ms_T* __restrict__
+    // - wrapper や機械型の参照: C では既に値渡しなので qualifier 不要
+    // (§6.1.1 GCC -O2 ターゲット)
+    private cParamType(mozType: string): string {
+        const isRefMoz = mozType.startsWith("&mut ") || mozType.startsWith("&");
+        if (!isRefMoz) return this.cType(mozType);
+        const isMut = mozType.startsWith("&mut ");
+        const inner = isMut ? mozType.slice(5) : mozType.slice(1);
+        const resolved = this.resolveAlias(inner);
+        // wrapper / 機械型は値渡しのまま (qualifier 無し)
+        if (!this.isRef(resolved)) return this.cType(resolved);
+        // ref オブジェクト: 必ずポインタ。const / restrict を付与
+        const base = cStructName(resolved);
+        return isMut ? `${base}* __restrict__` : `const ${base}*`;
+    }
+
     // ── AST 読み込み ──────────────────────────────────────────────────────────
 
     loadAST(filePath: string): void {
@@ -265,6 +294,9 @@ export class CCodegen {
             case "MemberAccess":
                 this.collectType(node.resolvedType, excluded);
                 this.scanNode(node.receiver, excluded);
+                break;
+            case "BorrowExpr":
+                this.scanNode((node as any).expr, excluded);
                 break;
             case "Assign":
                 this.scanNode(node.target, excluded);
@@ -716,7 +748,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             if (fn.typeParams.length > 0) continue; // generic: emit concrete instantiations below
             // インポートがある場合、他ファイル由来の関数はスキップ
             if (hasImports && !this.isOwn(this.fnOrigin.get(name) ?? "")) continue;
-            const params = fn.params.map(p => `${this.cType(p.resolvedType)} ${p.name}`);
+            const params = fn.params.map(p => `${this.cParamType(p.resolvedType)} ${p.name}`);
             lines.push(`static ${this.cType(fn.returnType)} _ms_${name}(${params.join(", ")});`);
         }
 
@@ -728,7 +760,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 const subst = new Map<string, string>();
                 fn.typeParams.forEach(p => subst.set(p, concreteT));
                 const ret = this.cType(applySubst(fn.returnType, subst));
-                const params = fn.params.map(p => `${this.cType(applySubst(p.resolvedType, subst))} ${p.name}`);
+                const params = fn.params.map(p => `${this.cParamType(applySubst(p.resolvedType, subst))} ${p.name}`);
                 const mangledT = cStructName(concreteT).replace(/^_ms_/, "");
                 lines.push(`static ${ret} _ms_${name}__${mangledT}(${params.join(", ")});`);
             }
@@ -797,7 +829,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 const mangledT = cStructName(concreteT).replace(/^_ms_/, "");
                 const ret = this.cType(applySubst(fn.returnType, subst));
                 const params = fn.params.map(p =>
-                    `${this.cType(applySubst(p.resolvedType, subst))} ${p.name}`);
+                    `${this.cParamType(applySubst(p.resolvedType, subst))} ${p.name}`);
                 const body: string[] = [];
                 fn.body.forEach(n => this.emitBodyNode(n, "    ", subst, body, fn.returnType));
                 lines.push(`static ${ret} _ms_${name}__${mangledT}(${params.join(", ")}) {\n${body.map(l => "    " + l).join("\n")}\n}`);
@@ -811,9 +843,13 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         const sname   = cStructName(classType);
         const fnName  = cMethodName(classType, method.name);
         const retType = this.cType(applySubst(method.returnType, subst));
-        const params: string[] = [`${sname}* self`];
+        // §6.1.1 mut メソッド (および constructor) の self は &mut T → restrict
+        //         不変メソッドは &T → const
+        const selfIsMut = method.isMut || method.name === "constructor";
+        const selfQual = selfIsMut ? `${sname}* __restrict__` : `const ${sname}*`;
+        const params: string[] = [`${selfQual} self`];
         for (const p of method.params) {
-            params.push(`${this.cType(applySubst(p.resolvedType, subst))} ${p.name}`);
+            params.push(`${this.cParamType(applySubst(p.resolvedType, subst))} ${p.name}`);
         }
         return `static ${retType} ${fnName}(${params.join(", ")})`;
     }
@@ -829,14 +865,16 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         const fnName  = cMethodName(classType, method.name);
         const elemC   = this.cType(elemType);
         const wordsPerElem = `(int32_t)(sizeof(${elemC}) / sizeof(int32_t))`;
+        // 前方宣言 (methodSignature) と一致させる: method.isMut で self の qualifier を決定
+        const selfQual = method.isMut ? `${sname}* __restrict__` : `const ${sname}*`;
         if (method.name === "operator[]") {
-            return `static ${elemC} ${fnName}(${sname}* self, _ms_u32 index) {\n` +
+            return `static ${elemC} ${fnName}(${selfQual} self, _ms_u32 index) {\n` +
                 `    int32_t _word_off = (int32_t)((uint32_t)(index.bits) * (uint32_t)${wordsPerElem});\n` +
                 `    ${elemC} _result;\n    memset(&_result, 0, sizeof(${elemC}));\n` +
                 `    memcpy(&_result, &_ms_heap[self->ptr + _word_off], sizeof(${elemC}));\n` +
                 `    return _result;\n}`;
         } else { // operator_set[]
-            return `static void ${fnName}(${sname}* self, _ms_u32 index, ${elemC} value) {\n` +
+            return `static void ${fnName}(${selfQual} self, _ms_u32 index, ${elemC} value) {\n` +
                 `    int32_t _word_off = (int32_t)((uint32_t)(index.bits) * (uint32_t)${wordsPerElem});\n` +
                 `    memcpy(&_ms_heap[self->ptr + _word_off], &value, sizeof(${elemC}));\n}`;
         }
@@ -887,7 +925,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
     private emitFreeFunction(fn: FunctionDecl): string {
         this.tmpCount = 0;
         const retType   = this.cType(fn.returnType);
-        const params    = fn.params.map(p => `${this.cType(p.resolvedType)} ${p.name}`);
+        const params    = fn.params.map(p => `${this.cParamType(p.resolvedType)} ${p.name}`);
         const fnName    = `_ms_${fn.name}`;
         const bodyLines = this.emitBody(fn.body, "    ", new Map(), fn.returnType);
         return `static ${retType} ${fnName}(${params.join(", ")}) {\n${bodyLines}\n}`;
@@ -1188,6 +1226,10 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
 
             case "Intrinsic":
                 return this.flattenIntrinsic(node as any, pre, subst);
+
+            case "BorrowExpr":
+                // ゼロコスト借用: C では参照と所有権は同一のポインタなので透過
+                return this.flattenExpr((node as any).expr, pre, subst);
 
             default:
                 return "0";
@@ -1522,7 +1564,17 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
 
             // メモリ
             case "__builtin_malloc":       return `_ms_malloc(${a(0)})`;
-            case "__builtin_free":         { pre.push(`_ms_free(${a(0)});`); return ""; }
+            case "__builtin_free":         {
+                // arg がオブジェクトポインタなら C の free() を呼ぶ (借用チェッカー自動挿入)
+                // 生のヒープアドレス (_m32) なら _ms_free (バンプアロケータでは no-op)
+                const argType = applySubst((node.args[0] as any).resolvedType ?? "_m32", subst);
+                if (this.isRef(this.resolveAlias(argType))) {
+                    pre.push(`free(${a(0)});`);
+                } else {
+                    pre.push(`_ms_free(${a(0)});`);
+                }
+                return "";
+            }
             case "__builtin_mem_read8":    return `_ms_mem_read8(${a(0)}, ${a(1)})`;
             case "__builtin_mem_read16":   return `_ms_mem_read16(${a(0)}, ${a(1)})`;
             case "__builtin_mem_read32":   return `_ms_mem_read32(${a(0)}, ${a(1)})`;
