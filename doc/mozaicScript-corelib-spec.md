@@ -280,7 +280,7 @@ new Option<T>(FALSE, dummyValue);
 | `public let length: u32` | 要素数フィールド |
 | `operator[](index: u32): T` | インデックス参照 |
 | `operator_set[](index: u32, value: T): void` | インデックス代入 |
-| `free(): void` | メモリ解放 |
+| `drop(): void` | メモリ解放 |
 
 **コンストラクタ：**
 ```typescript
@@ -300,7 +300,6 @@ new Array<T>(size: u32)
 | `deref(): T` | ポインタが指す値を読み取る |
 | `write(val: T): void` | ポインタが指す先に値を書き込む |
 | `isNull(): boolean` | ヌルポインタ（アドレス 0）かどうか確認 |
-| `free(): void` | ポインタが確保するメモリを解放 |
 
 `mocp public let addr: _m32` — 内部アドレスフィールド（`.moc` 内専用）
 
@@ -510,7 +509,7 @@ GPU への所有権移譲は `unmap()` で行い、CPU から GPU へのデー�
 | `mapRead<T>(): Ptr<T>` | CPU 読み取りアクセス権を要求する。戻り値は型 `T` の `Ptr`。`unmap()` を呼ぶまで GPU はこのバッファを参照してはならない |
 | `unmap(): void` | CPU のアクセス権を放棄し、GPU へ所有権を返還する。`mapWrite()` / `mapRead()` が呼ばれていない状態で呼ぶことは禁止（**MUST NOT**） |
 | `byteSize(): u64` | バッファのバイトサイズを返す |
-| `free(): void` | バッファを破棄してメモリを解放する。`mapWrite()` / `mapRead()` 後に `unmap()` を経ずに呼ぶことは禁止（**MUST NOT**） |
+| `drop(): void` | バッファを破棄してメモリを解放する。自動挿入された `drop()` 呼び出し時にバッファがマッピング状態であった場合は、安全のために自動的に `unmap()` を行ってから解放しなければならない（**MUST**） |
 
 `mocp public let handle: _m64` — 内部ハンドル（`.moc` 内専用）
 
@@ -556,15 +555,16 @@ public let vecAdd: GpuKernel;   // 同名の GpuKernel 定数
 
 ```typescript
 let args: GpuArgs = new GpuArgs();
-args.pushBuffer(outBuf);       // Ptr<T> 引数（GpuBuffer の先頭アドレスに lower）
-args.pushBuffer(aBuf);
-args.pushBuffer(bBuf);
-args.pushU32(new u32(1024));   // スカラー引数
+args.pushBufferMut(&mut outBuf); // Ptr<T> 引数（GpuBuffer の先頭アドレスに lower）
+args.pushBuffer(&aBuf);
+args.pushBuffer(&bBuf);
+args.pushU32(new u32(1024));     // スカラー引数
 ```
 
 | メソッド | 説明 |
 |----------|------|
-| `pushBuffer(buf: GpuBuffer): void` | バッファ参照を引数として追加。カーネル側の `Ptr<T>` 引数に対応 |
+| `pushBuffer(buf: &GpuBuffer): void` | 読み取り専用バッファ参照を引数として追加。カーネル側の `Ptr<T>` 引数に対応 |
+| `pushBufferMut(buf: &mut GpuBuffer): void` | 書き込み用バッファ参照を引数として追加。カーネル側の `Ptr<T>` 引数に対応 |
 | `pushI32(v: i32): void` / `pushU32(v: u32): void` / `pushI64(v: i64): void` / `pushU64(v: u64): void` | 整数スカラーを追加 |
 | `pushF32(v: f32): void` / `pushF64(v: f64): void` | 浮動小数点スカラーを追加 |
 | `pushBoolean(v: boolean): void` | 真偽値スカラーを追加 |
