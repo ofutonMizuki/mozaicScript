@@ -227,6 +227,46 @@ export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
         return primitive(cur.value);
     }],
 
+    // MemoryOrder 対応アトミック — order パラメータはシングルスレッドでは無視
+    // 32bit
+    ["__builtin_atomic_load32",      ([ptr, _o])              => HeapManager.read(v(ptr))],
+    ["__builtin_atomic_store32",     ([ptr, val, _o])         => { HeapManager.write(v(ptr), val); return voidValue(); }],
+    ["__builtin_atomic_cas32",       ([ptr, exp, des, _so, _fo]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        if (cur.value === v(exp)) { HeapManager.write(v(ptr), des); return primitive(1); }
+        return primitive(0);
+    }],
+    ["__builtin_atomic_fetch_add32", ([ptr, val, _o]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive((cur.value + v(val)) | 0));
+        return primitive(cur.value);
+    }],
+    ["__builtin_atomic_fetch_sub32", ([ptr, val, _o]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive((cur.value - v(val)) | 0));
+        return primitive(cur.value);
+    }],
+    // 64bit
+    ["__builtin_atomic_load64",      ([ptr, _o])              => HeapManager.read(v(ptr))],
+    ["__builtin_atomic_store64",     ([ptr, val, _o])         => { HeapManager.write(v(ptr), val); return voidValue(); }],
+    ["__builtin_atomic_cas64",       ([ptr, exp, des, _so, _fo]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        if (toI64(cur.value) === toI64(v(exp))) { HeapManager.write(v(ptr), des); return primitive(1); }
+        return primitive(0);
+    }],
+    ["__builtin_atomic_fetch_add64", ([ptr, val, _o]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive(n64(toI64(cur.value) + toI64(v(val)))));
+        return primitive(cur.value);
+    }],
+    ["__builtin_atomic_fetch_sub64", ([ptr, val, _o]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive(n64(toI64(cur.value) - toI64(v(val)))));
+        return primitive(cur.value);
+    }],
+    // フェンス — シングルスレッドでは no-op
+    ["__builtin_atomic_fence", ([_o]) => voidValue()],
+
     // __builtin_if / __builtin_while / __builtin_sizeof は evaluator で特別処理
 ] as [string, BuiltinFn][]);
 

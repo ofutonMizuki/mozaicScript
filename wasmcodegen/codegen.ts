@@ -1130,12 +1130,47 @@ export class WasmCodegen {
 
             case "__builtin_sizeof": fb.i32_const(this.computeSizeof(applySubst(node.targetType ?? "i32", ctx.subst))); return "i32";
 
-            // atomic（シングルスレッド: 通常のヒープ操作）
+            // atomic（シングルスレッド: 通常のヒープ操作、旧 API）
             case "__builtin_atomic_load": { a0(); fb.i32_const(2).emit(OP.i32_shl); fb.load(OP.i32_load, 2, 0); return "i32"; }
             case "__builtin_atomic_store": { a0(); fb.i32_const(2).emit(OP.i32_shl); this.emitExprAsW(node.args[1], "i32", ctx); fb.store(OP.i32_store, 2, 0); return VOID; }
             case "__builtin_atomic_fetch_add": return this.emitAtomicFetch(ctx, node, OP.i32_add);
             case "__builtin_atomic_fetch_sub": return this.emitAtomicFetch(ctx, node, OP.i32_sub);
             case "__builtin_atomic_cas": return this.emitAtomicCas(ctx, node);
+            // MemoryOrder 対応版（order は no-op: シングルスレッド）
+            // 32bit
+            case "__builtin_atomic_load32": {
+                a0(); fb.i32_const(2).emit(OP.i32_shl); fb.load(OP.i32_load, 2, 0);
+                a1(); fb.drop();
+                return "i32";
+            }
+            case "__builtin_atomic_store32": {
+                a0(); fb.i32_const(2).emit(OP.i32_shl);
+                this.emitExprAsW(node.args[1], "i32", ctx);
+                fb.store(OP.i32_store, 2, 0);
+                a2(); fb.drop();
+                return VOID;
+            }
+            case "__builtin_atomic_fetch_add32": return this.emitAtomicFetch32(ctx, node, OP.i32_add);
+            case "__builtin_atomic_fetch_sub32": return this.emitAtomicFetch32(ctx, node, OP.i32_sub);
+            case "__builtin_atomic_cas32": return this.emitAtomicCas32(ctx, node);
+            // 64bit（ptr は 2-word アライメント必須）
+            case "__builtin_atomic_load64": {
+                a0(); fb.i32_const(2).emit(OP.i32_shl); fb.load(OP.i64_load, 2, 0);
+                a1(); fb.drop();
+                return "i64";
+            }
+            case "__builtin_atomic_store64": {
+                a0(); fb.i32_const(2).emit(OP.i32_shl);
+                this.emitExprAsW(node.args[1], "i64", ctx);
+                fb.store(OP.i64_store, 2, 0);
+                a2(); fb.drop();
+                return VOID;
+            }
+            case "__builtin_atomic_fetch_add64": return this.emitAtomicFetch64(ctx, node, OP.i64_add);
+            case "__builtin_atomic_fetch_sub64": return this.emitAtomicFetch64(ctx, node, OP.i64_sub);
+            case "__builtin_atomic_cas64": return this.emitAtomicCas64(ctx, node);
+            // フェンス — no-op
+            case "__builtin_atomic_fence": { a0(); fb.drop(); return VOID; }
 
             // mutex / condvar: no-op（シングルスレッド）。id は単調増加で発行。
             case "__builtin_mutex_create":
@@ -1225,6 +1260,71 @@ export class WasmCodegen {
         fb.emit(OP.i32_eq);
         fb.if_t("i32");
         fb.local_get(addr); this.emitExprAsW(node.args[2], "i32", ctx); fb.store(OP.i32_store, 2, 0);
+        fb.i32_const(1);
+        fb.else_();
+        fb.i32_const(0);
+        fb.end();
+        return "i32";
+    }
+
+    // MemoryOrder 対応版（order は評価して drop するだけ）
+    private emitAtomicFetch32(ctx: FnCtx, node: any, op: number): EType {
+        const fb = ctx.fb;
+        const addr = fb.addLocal("i32");
+        const old = fb.addLocal("i32");
+        this.emitExpr(node.args[0], ctx); fb.i32_const(2).emit(OP.i32_shl); fb.local_set(addr);
+        this.emitExprAsW(node.args[2], "i32", ctx); fb.drop(); // order
+        fb.local_get(addr); fb.load(OP.i32_load, 2, 0); fb.local_set(old);
+        fb.local_get(addr);
+        fb.local_get(old); this.emitExprAsW(node.args[1], "i32", ctx); fb.emit(op);
+        fb.store(OP.i32_store, 2, 0);
+        fb.local_get(old);
+        return "i32";
+    }
+
+    private emitAtomicCas32(ctx: FnCtx, node: any): EType {
+        const fb = ctx.fb;
+        const addr = fb.addLocal("i32");
+        this.emitExpr(node.args[0], ctx); fb.i32_const(2).emit(OP.i32_shl); fb.local_set(addr);
+        this.emitExprAsW(node.args[3], "i32", ctx); fb.drop(); // successOrder
+        this.emitExprAsW(node.args[4], "i32", ctx); fb.drop(); // failureOrder
+        fb.local_get(addr); fb.load(OP.i32_load, 2, 0);
+        this.emitExprAsW(node.args[1], "i32", ctx);
+        fb.emit(OP.i32_eq);
+        fb.if_t("i32");
+        fb.local_get(addr); this.emitExprAsW(node.args[2], "i32", ctx); fb.store(OP.i32_store, 2, 0);
+        fb.i32_const(1);
+        fb.else_();
+        fb.i32_const(0);
+        fb.end();
+        return "i32";
+    }
+
+    private emitAtomicFetch64(ctx: FnCtx, node: any, op: number): EType {
+        const fb = ctx.fb;
+        const addr = fb.addLocal("i32");
+        const old = fb.addLocal("i64");
+        this.emitExpr(node.args[0], ctx); fb.i32_const(2).emit(OP.i32_shl); fb.local_set(addr);
+        this.emitExprAsW(node.args[2], "i32", ctx); fb.drop(); // order
+        fb.local_get(addr); fb.load(OP.i64_load, 2, 0); fb.local_set(old);
+        fb.local_get(addr);
+        fb.local_get(old); this.emitExprAsW(node.args[1], "i64", ctx); fb.emit(op);
+        fb.store(OP.i64_store, 2, 0);
+        fb.local_get(old);
+        return "i64";
+    }
+
+    private emitAtomicCas64(ctx: FnCtx, node: any): EType {
+        const fb = ctx.fb;
+        const addr = fb.addLocal("i32");
+        this.emitExpr(node.args[0], ctx); fb.i32_const(2).emit(OP.i32_shl); fb.local_set(addr);
+        this.emitExprAsW(node.args[3], "i32", ctx); fb.drop(); // successOrder
+        this.emitExprAsW(node.args[4], "i32", ctx); fb.drop(); // failureOrder
+        fb.local_get(addr); fb.load(OP.i64_load, 2, 0);
+        this.emitExprAsW(node.args[1], "i64", ctx);
+        fb.emit(OP.i64_eq);
+        fb.if_t("i32");
+        fb.local_get(addr); this.emitExprAsW(node.args[2], "i64", ctx); fb.store(OP.i64_store, 2, 0);
         fb.i32_const(1);
         fb.else_();
         fb.i32_const(0);

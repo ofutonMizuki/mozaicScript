@@ -263,6 +263,21 @@ const INTRINSIC_JS: Record<string, (...args: string[]) => string> = {
     "__builtin_atomic_cas":       (p, e, d) => `(_ms_heap[(${p}|0)]===(${e})|0?(_ms_heap[(${p}|0)]=(${d})|0,1):0)`,
     "__builtin_atomic_fetch_add": (p, v)    => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=(_c+(${v}))|0;return _c;})()`,
     "__builtin_atomic_fetch_sub": (p, v)    => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=(_c-(${v}))|0;return _c;})()`,
+    // MemoryOrder 対応版 — シングルスレッドのため order は無視
+    // 32bit
+    "__builtin_atomic_load32":      (p, _o)             => `(_ms_heap[(${p}|0)])`,
+    "__builtin_atomic_store32":     (p, v, _o)          => `(_ms_heap[(${p}|0)]=(${v})|0,0)`,
+    "__builtin_atomic_cas32":       (p, e, d, _so, _fo) => `(_ms_heap[(${p}|0)]===(${e})|0?(_ms_heap[(${p}|0)]=(${d})|0,1):0)`,
+    "__builtin_atomic_fetch_add32": (p, v, _o)          => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=(_c+(${v}))|0;return _c;})()`,
+    "__builtin_atomic_fetch_sub32": (p, v, _o)          => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=(_c-(${v}))|0;return _c;})()`,
+    // 64bit — JS は i64 を number で近似
+    "__builtin_atomic_load64":      (p, _o)             => `(_ms_heap[(${p}|0)])`,
+    "__builtin_atomic_store64":     (p, v, _o)          => `(_ms_heap[(${p}|0)]=(${v}),0)`,
+    "__builtin_atomic_cas64":       (p, e, d, _so, _fo) => `(_ms_heap[(${p}|0)]===(${e})?(_ms_heap[(${p}|0)]=(${d}),1):0)`,
+    "__builtin_atomic_fetch_add64": (p, v, _o)          => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=_c+(${v});return _c;})()`,
+    "__builtin_atomic_fetch_sub64": (p, v, _o)          => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a];_ms_heap[_a]=_c-(${v});return _c;})()`,
+    // フェンス — no-op
+    "__builtin_atomic_fence": (_o) => `(0)`,
     // mutex / condvar は no-op
     "__builtin_mutex_create":      () => `0`,
     "__builtin_mutex_lock":        () => `0`,

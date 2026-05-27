@@ -1,0 +1,54 @@
+import "../sample/core.moc" as *;
+import "util.moz" as *;
+
+public function main(): void {
+    // 32bit アトミック操作の基本動作確認
+    let ptr: u32 = allocWord();
+
+    // store / load
+    atomicStore32(ptr, new u32(42), memoryOrderRelease());
+    let v1: u32 = atomicLoad32(ptr, memoryOrderAcquire());
+    printInt(v1.toI32());
+    print("\n");
+
+    // CAS: 42→100（成功）
+    let ok1: boolean = atomicCas32(ptr, new u32(42), new u32(100), memoryOrderAcqRel(), memoryOrderRelaxed());
+    let v2: u32 = atomicLoad32(ptr, memoryOrderSeqCst());
+    printBool(ok1);
+    print(" ");
+    printInt(v2.toI32());
+    print("\n");
+
+    // CAS: 42→999（失敗。ptr は今 100）
+    let ok2: boolean = atomicCas32(ptr, new u32(42), new u32(999), memoryOrderAcqRel(), memoryOrderRelaxed());
+    let v3: u32 = atomicLoad32(ptr, memoryOrderSeqCst());
+    printBool(ok2);
+    print(" ");
+    printInt(v3.toI32());
+    print("\n");
+
+    // fetchAdd32: 100→101、戻り値は 100
+    let old1: u32 = atomicFetchAdd32(ptr, new u32(1), memoryOrderRelaxed());
+    printInt(old1.toI32());
+    print("\n");
+
+    // fetchSub32: 101→100、戻り値は 101
+    let old2: u32 = atomicFetchSub32(ptr, new u32(1), memoryOrderRelaxed());
+    printInt(old2.toI32());
+    print("\n");
+
+    // MemoryOrder 等価比較
+    let r: MemoryOrder = memoryOrderRelaxed();
+    let s: MemoryOrder = memoryOrderSeqCst();
+    let same: boolean = r == r;
+    let diff: boolean = r == s;
+    printBool(same);
+    print(" ");
+    printBool(diff);
+    print("\n");
+
+    // fence（副作用なし確認用）
+    atomicFence(memoryOrderSeqCst());
+
+    print("done\n");
+}

@@ -55,6 +55,7 @@ type string = Array<char>;
 | `Stdout` | 標準出力ハンドル |
 | `Stderr` | 標準エラーハンドル |
 | `Stdin` | 標準入力ハンドル |
+| `MemoryOrder` | アトミック操作のメモリ順序制約 |
 
 必須グローバル関数（`print`, `eprint`, `readLine`, `panic`, スレッド関連）は §6 に記述する。
 
@@ -322,6 +323,26 @@ new Array<T>(size: u32)
 
 `mocp public let handle: _m32` — 内部ハンドル（`.moc` 内専用）
 
+### 5.14 `MemoryOrder`
+
+アトミック操作のメモリ順序制約を表す型。直接インスタンス化は `.moc` 内専用。ユーザーコードは §6.7 のグローバル関数で取得する。
+
+| メソッド | 説明 |
+|----------|------|
+| `operator==(other: MemoryOrder): boolean` | 等価比較 |
+
+`mocp public let bits: _m32` — 内部表現フィールド（`.moc` 内専用）
+
+実装者が各定数に対応させるべき意味論は以下のとおり。
+
+| 定数名 | C の対応値 | WASM 属性 | 用途 |
+|--------|-----------|-----------|------|
+| Relaxed | `memory_order_relaxed` | — | 順序制約なし（カウンタ加算等） |
+| Acquire | `memory_order_acquire` | `acquire` | ロード側の取得（ロック獲得等） |
+| Release | `memory_order_release` | `release` | ストア側の解放（ロック解放等） |
+| AcqRel | `memory_order_acq_rel` | `acq_rel` | ロードとストアを同時に行う操作（CAS の成功時等） |
+| SeqCst | `memory_order_seq_cst` | `seq_cst` | 逐次一貫性（最も強い保証、デフォルト推奨） |
+
 ---
 
 ## 6. 必須グローバル関数
@@ -353,6 +374,8 @@ new Array<T>(size: u32)
 
 ### 6.4 ミューテックス
 
+共有メモリへのアクセスには原則としてミューテックスによる排他制御を用いなければならない（**MUST**）。ただし、§6.6 で定義するアトミック操作を用いてデータ競合なしに共有状態を操作する場合（ロックフリーアルゴリズム）は、ミューテックスは不要である。
+
 | 関数 | 説明 |
 |------|------|
 | `mutexCreate(): u64` | ミューテックスを作成する |
@@ -370,13 +393,63 @@ new Array<T>(size: u32)
 
 ### 6.6 アトミック操作
 
+ロックフリーアルゴリズムの実装に使用する。`ptr` は word インデックス（§6.6 の他の関数と同じメモリモデル）。
+
+アトミック操作と非アトミックアクセスを同じアドレスに混在させてはならない（**MUST NOT**）。
+
+**32bit 操作**
+
 | 関数 | 説明 |
 |------|------|
-| `atomicLoad(ptr: u32): u32` | アトミックにロードする |
-| `atomicStore(ptr: u32, val: u32): void` | アトミックにストアする |
-| `atomicCas(ptr: u32, expected: u32, desired: u32): u32` | Compare-And-Swap |
-| `atomicFetchAdd(ptr: u32, val: u32): u32` | アトミック加算（加算前の値を返す） |
-| `atomicFetchSub(ptr: u32, val: u32): u32` | アトミック減算（減算前の値を返す） |
+| `atomicLoad32(ptr: u32, order: MemoryOrder): u32` | 32bit アトミックロード |
+| `atomicStore32(ptr: u32, val: u32, order: MemoryOrder): void` | 32bit アトミックストア |
+| `atomicCas32(ptr: u32, expected: u32, desired: u32, successOrder: MemoryOrder, failureOrder: MemoryOrder): boolean` | 32bit Compare-And-Swap。`*ptr == expected` なら `desired` に書き換え `TRUE` を返す。異なれば何もせず `FALSE` を返す |
+| `atomicFetchAdd32(ptr: u32, val: u32, order: MemoryOrder): u32` | 32bit アトミック加算（加算前の値を返す） |
+| `atomicFetchSub32(ptr: u32, val: u32, order: MemoryOrder): u32` | 32bit アトミック減算（減算前の値を返す） |
+
+**64bit 操作**（`ptr` は 64bit 値を収めるために 2 word 分のアライメントが必要）
+
+| 関数 | 説明 |
+|------|------|
+| `atomicLoad64(ptr: u32, order: MemoryOrder): u64` | 64bit アトミックロード |
+| `atomicStore64(ptr: u32, val: u64, order: MemoryOrder): void` | 64bit アトミックストア |
+| `atomicCas64(ptr: u32, expected: u64, desired: u64, successOrder: MemoryOrder, failureOrder: MemoryOrder): boolean` | 64bit Compare-And-Swap |
+| `atomicFetchAdd64(ptr: u32, val: u64, order: MemoryOrder): u64` | 64bit アトミック加算（加算前の値を返す） |
+| `atomicFetchSub64(ptr: u32, val: u64, order: MemoryOrder): u64` | 64bit アトミック減算（減算前の値を返す） |
+
+**フェンス**
+
+| 関数 | 説明 |
+|------|------|
+| `atomicFence(order: MemoryOrder): void` | スタンドアロンのメモリフェンスを発行する。`order` には `Acquire`・`Release`・`AcqRel`・`SeqCst` のいずれかを使用する（`Relaxed` は無効） |
+
+### 6.7 MemoryOrder 定数
+
+`MemoryOrder` 値を取得するグローバル関数。ユーザーコードはこれを通じて `MemoryOrder` を入手する。
+
+| 関数 | 意味 |
+|------|------|
+| `memoryOrderRelaxed(): MemoryOrder` | 順序制約なし |
+| `memoryOrderAcquire(): MemoryOrder` | Acquire 順序 |
+| `memoryOrderRelease(): MemoryOrder` | Release 順序 |
+| `memoryOrderAcqRel(): MemoryOrder` | Acquire-Release（CAS の `successOrder` や `atomicFetchAdd` 等に使用） |
+| `memoryOrderSeqCst(): MemoryOrder` | 逐次一貫性（最も強い保証。デフォルト推奨） |
+
+**CAS ループの典型的な記述例:**
+```typescript
+// スピンロックの実装例（locked = 1、unlocked = 0）
+public lock(ptr: u32): void {
+    let acquired: boolean = FALSE;
+    while (acquired.operatorNot()) {
+        acquired = atomicCas32(ptr, new u32(0), new u32(1),
+                               memoryOrderAcquire(), memoryOrderRelaxed());
+    }
+}
+
+public unlock(ptr: u32): void {
+    atomicStore32(ptr, new u32(0), memoryOrderRelease());
+}
+```
 
 ---
 
@@ -409,3 +482,39 @@ s[new u32(4)] = new u32(111); // 'o'
 ```
 
 各文字の数値表現は実装依存とする（UTF-32推奨）。
+
+---
+
+## 8. オプション拡張クラス
+
+本セクションのクラスはすべてのプラットフォームで提供することを要求しない（**OPTIONAL**）。ただし、提供する場合は本仕様書が定める挙動に従わなければならない（**MUST**）。
+
+### 8.1 `GpuBuffer`
+
+GPU との間でデータを受け渡すためのバッファクラス。CPU 側からは Map/Unmap モデルでアクセスする。
+
+GPU への所有権移譲は `unmap()` で行い、CPU から GPU へのデータコピーを最小化する。
+
+- **UMA 環境**（Apple Silicon、統合グラフィクス等）では `mapWrite()` / `mapRead()` はゼロコピーでポインタを返す。`unmap()` 時はキャッシュフラッシュのみを行う。
+- **ディスクリート GPU 環境**（PCIe 接続型 GPU）では `mapWrite()` は転送用一時領域を返す。`unmap()` 時に DMA 転送を自動発行する。
+
+実装者はいずれの動作を採用するかを文書化しなければならない（**MUST**）。
+
+`GpuBuffer` は直接インスタンス化できない。`gpuBufferCreate()` グローバル関数（§8.2）を用いて取得する。
+
+| メソッド | 説明 |
+|----------|------|
+| `mapWrite(): Ptr<u8>` | CPU 書き込みアクセス権を要求する。戻り値は書き込み先の先頭アドレス。`unmap()` を呼ぶまで GPU はこのバッファを参照してはならない |
+| `mapRead(): Ptr<u8>` | CPU 読み取りアクセス権を要求する。`unmap()` を呼ぶまで GPU はこのバッファを参照してはならない |
+| `unmap(): void` | CPU のアクセス権を放棄し、GPU へ所有権を返還する。`mapWrite()` / `mapRead()` が呼ばれていない状態で呼ぶことは禁止（**MUST NOT**） |
+| `byteSize(): u64` | バッファのバイトサイズを返す |
+| `free(): void` | バッファを破棄してメモリを解放する。`mapWrite()` / `mapRead()` 後に `unmap()` を経ずに呼ぶことは禁止（**MUST NOT**） |
+
+`mocp public let handle: _m64` — 内部ハンドル（`.moc` 内専用）
+
+### 8.2 GPU グローバル関数
+
+| 関数 | 説明 |
+|------|------|
+| `gpuBufferCreate(byteSize: u64): GpuBuffer` | 指定バイトサイズの GPU バッファを確保する |
+| `gpuIsAvailable(): boolean` | GPU バックエンドが利用可能かどうかを返す。`FALSE` を返す環境では他の GPU 関数を呼んではならない（**MUST NOT**） |

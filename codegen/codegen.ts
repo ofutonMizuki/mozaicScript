@@ -572,6 +572,17 @@ static void _ms_condvar_wait(int64_t cv, int64_t mu) {
 }
 static void _ms_condvar_signal   (int64_t cv) { pthread_cond_signal   (_ms_cv_tab[cv % _MS_SYNC_CAP]); }
 static void _ms_condvar_broadcast(int64_t cv) { pthread_cond_broadcast(_ms_cv_tab[cv % _MS_SYNC_CAP]); }
+
+/* ── MemoryOrder → GCC __ATOMIC_* 変換 ── */
+static int _ms_mo(int32_t o) {
+    switch (o) {
+        case 0: return __ATOMIC_RELAXED;
+        case 1: return __ATOMIC_ACQUIRE;
+        case 2: return __ATOMIC_RELEASE;
+        case 3: return __ATOMIC_ACQ_REL;
+        default: return __ATOMIC_SEQ_CST;
+    }
+}
 `;
     }
 
@@ -1636,7 +1647,7 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 return "";
             }
 
-            // ── アトミック操作 ────────────────────────────────────────────────
+            // ── アトミック操作（旧 API：後方互換） ──────────────────────────────
             case "__builtin_atomic_load":
                 return `(int32_t)__atomic_load_n(&_ms_heap[(int32_t)(${a(0)})], __ATOMIC_SEQ_CST)`;
             case "__builtin_atomic_store": {
@@ -1653,6 +1664,49 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
                 return `(int32_t)__atomic_fetch_add(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST)`;
             case "__builtin_atomic_fetch_sub":
                 return `(int32_t)__atomic_fetch_sub(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), __ATOMIC_SEQ_CST)`;
+
+            // ── アトミック操作（MemoryOrder 対応版） ─────────────────────────────
+            // 32bit
+            case "__builtin_atomic_load32":
+                return `(int32_t)__atomic_load_n(&_ms_heap[(int32_t)(${a(0)})], _ms_mo(${a(1)}))`;
+            case "__builtin_atomic_store32": {
+                pre.push(`__atomic_store_n(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), _ms_mo(${a(2)}));`);
+                return "";
+            }
+            case "__builtin_atomic_cas32": {
+                const tmp = this.nextTmp();
+                const res = this.nextTmp();
+                pre.push(`int32_t ${tmp} = (int32_t)(${a(1)});`);
+                pre.push(`int32_t ${res} = (int32_t)__atomic_compare_exchange_n(&_ms_heap[(int32_t)(${a(0)})], &${tmp}, (int32_t)(${a(2)}), 0, _ms_mo(${a(3)}), _ms_mo(${a(4)}));`);
+                return res;
+            }
+            case "__builtin_atomic_fetch_add32":
+                return `(int32_t)__atomic_fetch_add(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), _ms_mo(${a(2)}))`;
+            case "__builtin_atomic_fetch_sub32":
+                return `(int32_t)__atomic_fetch_sub(&_ms_heap[(int32_t)(${a(0)})], (int32_t)(${a(1)}), _ms_mo(${a(2)}))`;
+            // 64bit（ptr は 2-word アライメント必須）
+            case "__builtin_atomic_load64":
+                return `(int64_t)__atomic_load_n((int64_t*)&_ms_heap[(int32_t)(${a(0)})], _ms_mo(${a(1)}))`;
+            case "__builtin_atomic_store64": {
+                pre.push(`__atomic_store_n((int64_t*)&_ms_heap[(int32_t)(${a(0)})], (int64_t)(${a(1)}), _ms_mo(${a(2)}));`);
+                return "";
+            }
+            case "__builtin_atomic_cas64": {
+                const tmp = this.nextTmp();
+                const res = this.nextTmp();
+                pre.push(`int64_t ${tmp} = (int64_t)(${a(1)});`);
+                pre.push(`int32_t ${res} = (int32_t)__atomic_compare_exchange_n((int64_t*)&_ms_heap[(int32_t)(${a(0)})], &${tmp}, (int64_t)(${a(2)}), 0, _ms_mo(${a(3)}), _ms_mo(${a(4)}));`);
+                return res;
+            }
+            case "__builtin_atomic_fetch_add64":
+                return `(int64_t)__atomic_fetch_add((int64_t*)&_ms_heap[(int32_t)(${a(0)})], (int64_t)(${a(1)}), _ms_mo(${a(2)}))`;
+            case "__builtin_atomic_fetch_sub64":
+                return `(int64_t)__atomic_fetch_sub((int64_t*)&_ms_heap[(int32_t)(${a(0)})], (int64_t)(${a(1)}), _ms_mo(${a(2)}))`;
+            // フェンス
+            case "__builtin_atomic_fence": {
+                pre.push(`__atomic_thread_fence(_ms_mo(${a(0)}));`);
+                return "";
+            }
 
             default:
                 return `(int32_t)0 /* unknown builtin: ${node.name} */`;
