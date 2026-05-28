@@ -255,7 +255,162 @@ export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
     // フェンス — シングルスレッドでは no-op
     ["__builtin_atomic_fence", ([_o]) => voidValue()],
 
-    // __builtin_if / __builtin_while / __builtin_sizeof は evaluator で特別処理
+    // ── GPU エミュレーション (CPU 上で同期実行) ──────────────────────────────
+    // 仕様: doc/mozaicScript-spec.md §14 / doc/mozaicScript-corelib-spec.md §8
+    ["__builtin_gpu_is_available", ([])     => primitive(1)],
+
+    // バッファ
+    ["__builtin_gpu_buffer_create",    ([byteSize]) => primitive(GpuManager.createBuffer(v(byteSize)))],
+    ["__builtin_gpu_buffer_map_write", ([h])        => primitive(GpuManager.mapBufferWrite(v(h)))],
+    ["__builtin_gpu_buffer_map_read",  ([h])        => primitive(GpuManager.mapBufferRead(v(h)))],
+    ["__builtin_gpu_buffer_unmap",     ([h])        => { GpuManager.unmapBuffer(v(h)); return voidValue(); }],
+    ["__builtin_gpu_buffer_byte_size", ([h])        => primitive(GpuManager.bufferByteSize(v(h)))],
+    ["__builtin_gpu_buffer_free",      ([h])        => { GpuManager.freeBuffer(v(h)); return voidValue(); }],
+
+    // カーネル情報
+    ["__builtin_gpu_kernel_workgroup_size_x", ([h]) => primitive(GpuManager.kernelInfo(v(h))?.wgX ?? 0)],
+    ["__builtin_gpu_kernel_workgroup_size_y", ([h]) => primitive(GpuManager.kernelInfo(v(h))?.wgY ?? 0)],
+    ["__builtin_gpu_kernel_workgroup_size_z", ([h]) => primitive(GpuManager.kernelInfo(v(h))?.wgZ ?? 0)],
+    // kernel_name は string を返すため、Array<u32> をエンコードする必要があり省略
+    // (現バージョンで使用箇所がない)
+
+    // 引数ビルダー
+    ["__builtin_gpu_args_create",         ([])             => primitive(GpuManager.createArgs())],
+    ["__builtin_gpu_args_push_buffer",    ([h, bufH])      => { GpuManager.pushArg(v(h), { kind: 'buffer', value: GpuManager.bufferAddr(v(bufH)) }); return voidValue(); }],
+    ["__builtin_gpu_args_push_i32",       ([h, val])       => { GpuManager.pushArg(v(h), { kind: 'scalar', value: v(val), typeHint: 'i32' }); return voidValue(); }],
+    ["__builtin_gpu_args_push_u32",       ([h, val])       => { GpuManager.pushArg(v(h), { kind: 'scalar', value: v(val), typeHint: 'u32' }); return voidValue(); }],
+    ["__builtin_gpu_args_push_i64",       ([h, val])       => { GpuManager.pushArg(v(h), { kind: 'scalar', value: v(val), typeHint: 'i64' }); return voidValue(); }],
+    ["__builtin_gpu_args_push_u64",       ([h, val])       => { GpuManager.pushArg(v(h), { kind: 'scalar', value: v(val), typeHint: 'u64' }); return voidValue(); }],
+    ["__builtin_gpu_args_push_f32",       ([h, val])       => { GpuManager.pushArg(v(h), { kind: 'scalar', value: v(val), typeHint: 'f32' }); return voidValue(); }],
+    ["__builtin_gpu_args_push_f64",       ([h, val])       => { GpuManager.pushArg(v(h), { kind: 'scalar', value: v(val), typeHint: 'f64' }); return voidValue(); }],
+    ["__builtin_gpu_args_push_boolean",   ([h, val])       => { GpuManager.pushArg(v(h), { kind: 'scalar', value: v(val), typeHint: 'boolean' }); return voidValue(); }],
+    ["__builtin_gpu_args_count",          ([h])            => primitive(GpuManager.argCount(v(h)))],
+    ["__builtin_gpu_args_clear",          ([h])            => { GpuManager.clearArgs(v(h)); return voidValue(); }],
+
+    // 同期 (CPU 上では同期実行なので no-op)
+    ["__builtin_gpu_sync",  ([]) => voidValue()],
+    ["__builtin_gpu_flush", ([]) => voidValue()],
+
+    // ── gpu 関数本体内 builtin (per-thread context から値を返す) ──
+    ["__builtin_gpu_thread_global_id_x",      ([]) => primitive(GpuManager.threadCtx.globalIdX)],
+    ["__builtin_gpu_thread_global_id_y",      ([]) => primitive(GpuManager.threadCtx.globalIdY)],
+    ["__builtin_gpu_thread_global_id_z",      ([]) => primitive(GpuManager.threadCtx.globalIdZ)],
+    ["__builtin_gpu_thread_local_id_x",       ([]) => primitive(GpuManager.threadCtx.localIdX)],
+    ["__builtin_gpu_thread_local_id_y",       ([]) => primitive(GpuManager.threadCtx.localIdY)],
+    ["__builtin_gpu_thread_local_id_z",       ([]) => primitive(GpuManager.threadCtx.localIdZ)],
+    ["__builtin_gpu_thread_workgroup_id_x",   ([]) => primitive(GpuManager.threadCtx.workgroupIdX)],
+    ["__builtin_gpu_thread_workgroup_id_y",   ([]) => primitive(GpuManager.threadCtx.workgroupIdY)],
+    ["__builtin_gpu_thread_workgroup_id_z",   ([]) => primitive(GpuManager.threadCtx.workgroupIdZ)],
+    ["__builtin_gpu_thread_workgroup_size",   ([]) => primitive(GpuManager.threadCtx.workgroupSizeX)],
+
+    // バリア (シングルスレッド同期実行のため no-op)
+    ["__builtin_gpu_barrier",         ([]) => voidValue()],
+    ["__builtin_gpu_storage_barrier", ([]) => voidValue()],
+
+    // GPU アトミック (シングルスレッドなのでただの read-modify-write)
+    ["__builtin_gpu_atomic_add_u32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value >>> 0;
+        HeapManager.write(a, primitive((old + (v(val) >>> 0)) >>> 0));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_sub_u32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value >>> 0;
+        HeapManager.write(a, primitive((old - (v(val) >>> 0)) >>> 0));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_min_u32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value >>> 0; const nv = v(val) >>> 0;
+        HeapManager.write(a, primitive(nv < old ? nv : old));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_max_u32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value >>> 0; const nv = v(val) >>> 0;
+        HeapManager.write(a, primitive(nv > old ? nv : old));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_cas_u32", ([ptr, exp, des]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value >>> 0;
+        if (old === (v(exp) >>> 0)) HeapManager.write(a, primitive(v(des) >>> 0));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_load_u32",  ([ptr]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        return HeapManager.read(a);
+    }],
+    ["__builtin_gpu_atomic_store_u32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        HeapManager.write(a, val); return voidValue();
+    }],
+    // i32 版 (u32 と算術はビット同一)
+    ["__builtin_gpu_atomic_add_i32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value | 0;
+        HeapManager.write(a, primitive((old + (v(val) | 0)) | 0));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_sub_i32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value | 0;
+        HeapManager.write(a, primitive((old - (v(val) | 0)) | 0));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_min_i32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value | 0; const nv = v(val) | 0;
+        HeapManager.write(a, primitive(nv < old ? nv : old));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_max_i32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value | 0; const nv = v(val) | 0;
+        HeapManager.write(a, primitive(nv > old ? nv : old));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_cas_i32", ([ptr, exp, des]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        const cur = HeapManager.read(a) as any;
+        const old = cur.value | 0;
+        if (old === (v(exp) | 0)) HeapManager.write(a, primitive(v(des) | 0));
+        return primitive(old);
+    }],
+    ["__builtin_gpu_atomic_load_i32",  ([ptr]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        return HeapManager.read(a);
+    }],
+    ["__builtin_gpu_atomic_store_i32", ([ptr, val]) => {
+        const a = (ptr as any).kind === 'object' ? ((ptr as any).fields.addr.value) : v(ptr);
+        HeapManager.write(a, val); return voidValue();
+    }],
+    // FMA / 内積
+    ["__builtin_gpu_fma", ([a, b, c]) => primitive(Math.fround(v(a) * v(b) + v(c)))],
+    ["__builtin_gpu_dot_f32x4", ([ap, bp]) => {
+        const aAddr = (ap as any).kind === 'object' ? ((ap as any).fields.addr.value) : v(ap);
+        const bAddr = (bp as any).kind === 'object' ? ((bp as any).fields.addr.value) : v(bp);
+        let s = 0;
+        for (let i = 0; i < 4; i++) {
+            const x = (HeapManager.read(aAddr + i * 4) as any).value as number;
+            const y = (HeapManager.read(bAddr + i * 4) as any).value as number;
+            s = Math.fround(s + Math.fround(x * y));
+        }
+        return primitive(s);
+    }],
+
+    // __builtin_if / __builtin_while / __builtin_sizeof / __builtin_gpu_dispatch /
+    // __builtin_gpu_kernel_handle は evaluator で特別処理
 ] as [string, BuiltinFn][]);
 
 // ── パニックエラー ─────────────────────────────────────────────────────────────
@@ -293,6 +448,160 @@ export class HeapManager {
     static reset(): void {
         this.heap = new Map();
         this.nextAddr = 1000;
+    }
+}
+
+// ── GPU エミュレーションマネージャー（CPU 上の同期実行） ─────────────────────
+//
+// 仕様: doc/mozaicScript-spec.md §14, doc/mozaicScript-corelib-spec.md §8
+//
+// 実 GPU バックエンドの代わりに CPU 上でカーネルを直接呼び出すフォールバック実装。
+// `gpuDispatch()` は grid × workgroupSize 個のスレッドを順次起動し、各スレッドで
+// thread-local 状態 (gpuGlobalId 等) を更新してから kernel 関数本体を呼ぶ。
+// メモリは HeapManager をそのまま使う (GpuBuffer.handle = ヒープアドレス相当)。
+
+export interface GpuArg {
+    kind: 'buffer' | 'scalar';
+    // buffer: addr (heap pointer), scalar: bits (生ビット値)
+    value: number;
+    typeHint?: string;  // 'i32'|'u32'|'f32'|'i64'|'u64'|'f64'|'boolean' (scalar 用)
+}
+
+export interface GpuThreadCtx {
+    globalIdX: number; globalIdY: number; globalIdZ: number;
+    localIdX:  number; localIdY:  number; localIdZ:  number;
+    workgroupIdX: number; workgroupIdY: number; workgroupIdZ: number;
+    workgroupSizeX: number;
+}
+
+export class GpuManager {
+    // handle (number) → buffer 情報
+    private static buffers: Map<number, { addr: number; byteSize: number; mapped: boolean }> = new Map();
+    // handle → kernel 情報 (workgroupSize は CPU 側 IR の FunctionDecl から拾う)
+    private static kernels: Map<number, { name: string; wgX: number; wgY: number; wgZ: number }> = new Map();
+    // kernel 名 → handle (重複登録回避)
+    private static kernelByName: Map<string, number> = new Map();
+    // GpuArgs handle → 引数配列
+    private static argsList: Map<number, GpuArg[]> = new Map();
+    private static _nextId = 1;
+    // 現在のスレッドコンテキスト (gpuDispatch 中のみ有効)
+    static threadCtx: GpuThreadCtx = {
+        globalIdX: 0, globalIdY: 0, globalIdZ: 0,
+        localIdX: 0, localIdY: 0, localIdZ: 0,
+        workgroupIdX: 0, workgroupIdY: 0, workgroupIdZ: 0,
+        workgroupSizeX: 1,
+    };
+
+    static reset(): void {
+        this.buffers.clear();
+        this.kernels.clear();
+        this.kernelByName.clear();
+        this.argsList.clear();
+        this._nextId = 1;
+    }
+
+    // ── バッファ ──
+    static createBuffer(byteSize: number): number {
+        // HeapManager の alloc を使用 (ヒープに asNumBytes 連続領域確保)
+        const addr = HeapManager.alloc(byteSize);
+        const handle = this._nextId++;
+        this.buffers.set(handle, { addr, byteSize, mapped: false });
+        return handle;
+    }
+    static mapBufferWrite(handle: number): number {
+        const b = this.buffers.get(handle);
+        if (!b) throw new PanicError(`Unknown gpu buffer handle ${handle}`);
+        b.mapped = true;
+        return b.addr;
+    }
+    static mapBufferRead(handle: number): number {
+        const b = this.buffers.get(handle);
+        if (!b) throw new PanicError(`Unknown gpu buffer handle ${handle}`);
+        b.mapped = true;
+        return b.addr;
+    }
+    static unmapBuffer(handle: number): void {
+        const b = this.buffers.get(handle);
+        if (b) b.mapped = false;
+    }
+    static bufferByteSize(handle: number): number {
+        return this.buffers.get(handle)?.byteSize ?? 0;
+    }
+    static freeBuffer(handle: number): void {
+        const b = this.buffers.get(handle);
+        if (b) { HeapManager.free(b.addr); this.buffers.delete(handle); }
+    }
+    static bufferAddr(handle: number): number {
+        return this.buffers.get(handle)?.addr ?? 0;
+    }
+
+    // ── カーネルレジストリ (コンパイラが lower 時に登録) ──
+    static registerKernel(name: string, wgX: number, wgY: number, wgZ: number): number {
+        const existing = this.kernelByName.get(name);
+        if (existing !== undefined) return existing;
+        const handle = this._nextId++;
+        this.kernels.set(handle, { name, wgX, wgY, wgZ });
+        this.kernelByName.set(name, handle);
+        return handle;
+    }
+    static kernelInfo(handle: number): { name: string; wgX: number; wgY: number; wgZ: number } | undefined {
+        return this.kernels.get(handle);
+    }
+
+    // ── 引数ビルダー ──
+    static createArgs(): number {
+        const handle = this._nextId++;
+        this.argsList.set(handle, []);
+        return handle;
+    }
+    static pushArg(handle: number, arg: GpuArg): void {
+        this.argsList.get(handle)?.push(arg);
+    }
+    static getArgs(handle: number): GpuArg[] {
+        return this.argsList.get(handle) ?? [];
+    }
+    static argCount(handle: number): number {
+        return this.argsList.get(handle)?.length ?? 0;
+    }
+    static clearArgs(handle: number): void {
+        this.argsList.set(handle, []);
+    }
+
+    // ── ディスパッチ: 全スレッドを順次起動 ──
+    // launcher: (kernelName, bufferAddrs[], scalars[]) → void
+    static dispatch(
+        kernelHandle: number, argsHandle: number,
+        gridX: number, gridY: number, gridZ: number,
+        launcher: (kernelName: string, args: GpuArg[]) => void,
+    ): void {
+        const k = this.kernels.get(kernelHandle);
+        if (!k) throw new PanicError(`Unknown gpu kernel handle ${kernelHandle}`);
+        const args = this.getArgs(argsHandle);
+        const prevCtx = { ...this.threadCtx };
+        this.threadCtx.workgroupSizeX = k.wgX;
+        for (let wz = 0; wz < gridZ; wz++) {
+            for (let wy = 0; wy < gridY; wy++) {
+                for (let wx = 0; wx < gridX; wx++) {
+                    this.threadCtx.workgroupIdX = wx;
+                    this.threadCtx.workgroupIdY = wy;
+                    this.threadCtx.workgroupIdZ = wz;
+                    for (let lz = 0; lz < k.wgZ; lz++) {
+                        for (let ly = 0; ly < k.wgY; ly++) {
+                            for (let lx = 0; lx < k.wgX; lx++) {
+                                this.threadCtx.localIdX = lx;
+                                this.threadCtx.localIdY = ly;
+                                this.threadCtx.localIdZ = lz;
+                                this.threadCtx.globalIdX = wx * k.wgX + lx;
+                                this.threadCtx.globalIdY = wy * k.wgY + ly;
+                                this.threadCtx.globalIdZ = wz * k.wgZ + lz;
+                                launcher(k.name, args);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        this.threadCtx = prevCtx;
     }
 }
 

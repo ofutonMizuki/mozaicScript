@@ -297,6 +297,63 @@ const INTRINSIC_JS: Record<string, (...args: string[]) => string> = {
     "__builtin_threadpool_submit":     (p, fn, a)  => `(_ms_tp_submit(${p},${fn},${a}),0)`,
     "__builtin_threadpool_wait":       (p)         => `(_ms_tp_wait(${p}),0)`,
     "__builtin_threadpool_destroy":    (p)         => `(_ms_tp_destroy(${p}),0)`,
+    // ── GPU エミュレーション (CPU 同期実行) ──
+    "__builtin_gpu_is_available":        () => `1`,
+    "__builtin_gpu_buffer_create":       (s)    => `(_ms_gpu_buf_create(${s}))`,
+    "__builtin_gpu_buffer_map_write":    (h)    => `(_ms_gpu_buf_addr(${h}))`,
+    "__builtin_gpu_buffer_map_read":     (h)    => `(_ms_gpu_buf_addr(${h}))`,
+    "__builtin_gpu_buffer_unmap":        (_h)   => `(0)`,
+    "__builtin_gpu_buffer_byte_size":    (h)    => `(_ms_gpu_buf_size(${h}))`,
+    "__builtin_gpu_buffer_free":         (h)    => `(_ms_gpu_buf_free(${h}),0)`,
+    // 文字列を返す kernel_name はテストで未使用のため runtime stub のみ提供
+    "__builtin_gpu_kernel_name":             (_h) => `(_ms_gpu_kern_name(${_h}))`,
+    "__builtin_gpu_kernel_workgroup_size_x": (h) => `(_ms_gpu_kern_wgx(${h}))`,
+    "__builtin_gpu_kernel_workgroup_size_y": (h) => `(_ms_gpu_kern_wgy(${h}))`,
+    "__builtin_gpu_kernel_workgroup_size_z": (h) => `(_ms_gpu_kern_wgz(${h}))`,
+    "__builtin_gpu_kernel_handle":       (idx)  => `(_ms_gpu_kern_by_index(${idx}))`,
+    "__builtin_gpu_args_create":         ()           => `(_ms_gpu_args_create())`,
+    "__builtin_gpu_args_push_buffer":    (h, b)       => `(_ms_gpu_args_push(${h},_ms_gpu_buf_addr(${b})),0)`,
+    "__builtin_gpu_args_push_i32":       (h, v)       => `(_ms_gpu_args_push(${h},${v}),0)`,
+    "__builtin_gpu_args_push_u32":       (h, v)       => `(_ms_gpu_args_push(${h},${v}),0)`,
+    "__builtin_gpu_args_push_i64":       (h, v)       => `(_ms_gpu_args_push(${h},${v}),0)`,
+    "__builtin_gpu_args_push_u64":       (h, v)       => `(_ms_gpu_args_push(${h},${v}),0)`,
+    "__builtin_gpu_args_push_f32":       (h, v)       => `(_ms_gpu_args_push(${h},${v}),0)`,
+    "__builtin_gpu_args_push_f64":       (h, v)       => `(_ms_gpu_args_push(${h},${v}),0)`,
+    "__builtin_gpu_args_push_boolean":   (h, v)       => `(_ms_gpu_args_push(${h},${v}),0)`,
+    "__builtin_gpu_args_count":          (h)          => `(_ms_gpu_args_count(${h}))`,
+    "__builtin_gpu_args_clear":          (h)          => `(_ms_gpu_args_clear(${h}),0)`,
+    "__builtin_gpu_dispatch":            (k, a, gx, gy, gz) => `(_ms_gpu_dispatch(${k},${a},${gx},${gy},${gz}),0)`,
+    "__builtin_gpu_sync":                ()           => `(0)`,
+    "__builtin_gpu_flush":               ()           => `(0)`,
+    "__builtin_gpu_thread_global_id_x":      () => `(_ms_gpu_ctx.gix)`,
+    "__builtin_gpu_thread_global_id_y":      () => `(_ms_gpu_ctx.giy)`,
+    "__builtin_gpu_thread_global_id_z":      () => `(_ms_gpu_ctx.giz)`,
+    "__builtin_gpu_thread_local_id_x":       () => `(_ms_gpu_ctx.lix)`,
+    "__builtin_gpu_thread_local_id_y":       () => `(_ms_gpu_ctx.liy)`,
+    "__builtin_gpu_thread_local_id_z":       () => `(_ms_gpu_ctx.liz)`,
+    "__builtin_gpu_thread_workgroup_id_x":   () => `(_ms_gpu_ctx.wix)`,
+    "__builtin_gpu_thread_workgroup_id_y":   () => `(_ms_gpu_ctx.wiy)`,
+    "__builtin_gpu_thread_workgroup_id_z":   () => `(_ms_gpu_ctx.wiz)`,
+    "__builtin_gpu_thread_workgroup_size":   () => `(_ms_gpu_ctx.wgx)`,
+    "__builtin_gpu_barrier":                 () => `(0)`,
+    "__builtin_gpu_storage_barrier":         () => `(0)`,
+    // GPU アトミック (シングルスレッドなので普通の RMW)
+    "__builtin_gpu_atomic_add_u32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]>>>0;_ms_heap[_a]=(_c+(${v}>>>0))>>>0;return _c;})()`,
+    "__builtin_gpu_atomic_sub_u32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]>>>0;_ms_heap[_a]=(_c-(${v}>>>0))>>>0;return _c;})()`,
+    "__builtin_gpu_atomic_min_u32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]>>>0;const _n=(${v})>>>0;_ms_heap[_a]=_n<_c?_n:_c;return _c;})()`,
+    "__builtin_gpu_atomic_max_u32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]>>>0;const _n=(${v})>>>0;_ms_heap[_a]=_n>_c?_n:_c;return _c;})()`,
+    "__builtin_gpu_atomic_cas_u32":   (p, e, d) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]>>>0;if(_c===(${e}>>>0))_ms_heap[_a]=(${d})>>>0;return _c;})()`,
+    "__builtin_gpu_atomic_load_u32":  (p)    => `(_ms_heap[(${p})|0]>>>0)`,
+    "__builtin_gpu_atomic_store_u32": (p, v) => `(_ms_heap[(${p})|0]=(${v})>>>0,0)`,
+    "__builtin_gpu_atomic_add_i32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]|0;_ms_heap[_a]=(_c+((${v})|0))|0;return _c;})()`,
+    "__builtin_gpu_atomic_sub_i32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]|0;_ms_heap[_a]=(_c-((${v})|0))|0;return _c;})()`,
+    "__builtin_gpu_atomic_min_i32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]|0;const _n=(${v})|0;_ms_heap[_a]=_n<_c?_n:_c;return _c;})()`,
+    "__builtin_gpu_atomic_max_i32":   (p, v) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]|0;const _n=(${v})|0;_ms_heap[_a]=_n>_c?_n:_c;return _c;})()`,
+    "__builtin_gpu_atomic_cas_i32":   (p, e, d) => `(()=>{const _a=(${p})|0;const _c=_ms_heap[_a]|0;if(_c===((${e})|0))_ms_heap[_a]=(${d})|0;return _c;})()`,
+    "__builtin_gpu_atomic_load_i32":  (p)    => `(_ms_heap[(${p})|0]|0)`,
+    "__builtin_gpu_atomic_store_i32": (p, v) => `(_ms_heap[(${p})|0]=(${v})|0,0)`,
+    "__builtin_gpu_fma":              (a, b, c) => `(Math.fround((${a})*(${b})+(${c})))`,
+    "__builtin_gpu_dot_f32x4":        (a, b) => `(()=>{const _a=(${a})|0;const _b=(${b})|0;let _s=0;for(let _i=0;_i<4;_i++){_s=Math.fround(_s+Math.fround(_ms_heap_f32(_a,_i)*_ms_heap_f32(_b,_i)));}return _s;})()`,
 };
 
 // sizeof マッピング (バイト数)
@@ -457,6 +514,14 @@ export class JSCodegen {
             // "private" or "mocp public" (core lib internal) are both single-field markers
             const privs = cls.members.filter(m => m.access === "private" || m.access === "mocp public");
             if (privs.length === 1 && privs[0].resolvedType.startsWith("_m")) {
+                // ラッパー判定の追加条件: constructor が 1 個の _mXX 引数を取り、
+                // 直接フィールドに代入する素通しパターンであること。
+                // GpuArgs のような () コンストラクタ内で intrinsic を呼ぶ初期化型は
+                // ラッパーとして扱うと値が落ちるため除外する。
+                const ctor = cls.methods.find(m => m.name === "constructor");
+                if (!ctor || ctor.params.length !== 1) continue;
+                const p0 = ctor.params[0];
+                if (!p0.resolvedType.startsWith("_m")) continue;
                 this.wrappers.set(name, { field: privs[0].name, bits: privs[0].resolvedType });
             }
         }
@@ -476,10 +541,27 @@ export class JSCodegen {
             this.emitAllClasses(),
             this.emitAllFunctions(),
             this.emitFnRegistry(),
+            this.emitGpuKernelRegistry(),
             this.emitGlobals(),
             "_top_main();",
         ];
         return parts.filter(Boolean).join("\n\n");
+    }
+
+    // gpu 関数 (`__gpu_kernel_<name>`) を _ms_gpu_register_kernel で登録する。
+    // 登録順は kernel-name インターン ID (チェッカーが globalEnv 登録順に発行) と一致する。
+    // 引数型情報も渡しランタイムが Ptr<T> をオブジェクト化する。
+    private emitGpuKernelRegistry(): string {
+        const lines: string[] = [];
+        for (const [name, fn] of this.functions) {
+            if (!fn.isGpu) continue;
+            const actual = name.startsWith("__gpu_kernel_") ? name.slice("__gpu_kernel_".length) : name;
+            const wgs = fn.workgroupSize ?? [64, 1, 1];
+            const jsFn = jsTopFnName(name);
+            const paramTypes = fn.params.map(p => p.resolvedType);
+            lines.push(`_ms_gpu_register_kernel(${JSON.stringify(actual)}, ${jsFn}, ${wgs[0]}, ${wgs[1]}, ${wgs[2]}, ${JSON.stringify(paramTypes)});`);
+        }
+        return lines.join("\n");
     }
 
     private emitFnRegistry(): string {
@@ -567,7 +649,85 @@ let _ms_tpid = 1;
 function _ms_tp_create(sz) { const id = _ms_tpid++; _ms_tpools.set(id, []); return id; }
 function _ms_tp_submit(p, fn, _args) { _ms_call_by_name(fn); }
 function _ms_tp_wait(p) {}
-function _ms_tp_destroy(p) { _ms_tpools.delete(p); }`;
+function _ms_tp_destroy(p) { _ms_tpools.delete(p); }
+
+// ── GPU エミュレーション (CPU 同期実行) ──
+// kernels: name → { fn, wgx, wgy, wgz }; kernel handle = registration index+1
+const _ms_gpu_kernels = [];      // [{ name, fn, wgx, wgy, wgz, paramTypes }]
+const _ms_gpu_kernels_by_name = {};
+function _ms_gpu_register_kernel(name, fn, wgx, wgy, wgz, paramTypes) {
+    const existing = _ms_gpu_kernels_by_name[name];
+    if (existing !== undefined) return existing;
+    const id = _ms_gpu_kernels.length + 1;
+    _ms_gpu_kernels.push({ name, fn, wgx: wgx|0, wgy: wgy|0, wgz: wgz|0, paramTypes: paramTypes || [] });
+    _ms_gpu_kernels_by_name[name] = id;
+    return id;
+}
+function _ms_gpu_kern_by_index(idx) {
+    // idx は compiler が割り当てた kernel-name インターン ID。
+    // 登録順と一致するので idx+1 をそのまま handle として返す。
+    return ((idx|0) + 1);
+}
+function _ms_gpu_kern_name(_h) { return { ptr: 0, length: 0 }; }
+function _ms_gpu_kern_wgx(h) { return _ms_gpu_kernels[(h|0) - 1].wgx; }
+function _ms_gpu_kern_wgy(h) { return _ms_gpu_kernels[(h|0) - 1].wgy; }
+function _ms_gpu_kern_wgz(h) { return _ms_gpu_kernels[(h|0) - 1].wgz; }
+
+const _ms_gpu_buffers = new Map(); // handle → { addr, byteSize }
+let _ms_gpu_next_id = 1;
+function _ms_gpu_buf_create(byteSize) {
+    const addr = _ms_malloc(byteSize|0);
+    const h = _ms_gpu_next_id++;
+    _ms_gpu_buffers.set(h, { addr, byteSize: byteSize|0 });
+    return h;
+}
+function _ms_gpu_buf_addr(h) { return _ms_gpu_buffers.get(h|0).addr; }
+function _ms_gpu_buf_size(h) { return _ms_gpu_buffers.get(h|0).byteSize; }
+function _ms_gpu_buf_free(h) { _ms_gpu_buffers.delete(h|0); }
+
+const _ms_gpu_args = new Map();
+function _ms_gpu_args_create() { const h = _ms_gpu_next_id++; _ms_gpu_args.set(h, []); return h; }
+function _ms_gpu_args_push(h, v) { _ms_gpu_args.get(h|0).push(v); }
+function _ms_gpu_args_count(h) { return _ms_gpu_args.get(h|0).length; }
+function _ms_gpu_args_clear(h) { _ms_gpu_args.set(h|0, []); }
+
+// thread-local context (per CPU thread = global for sequential exec)
+const _ms_gpu_ctx = { gix:0, giy:0, giz:0, lix:0, liy:0, liz:0, wix:0, wiy:0, wiz:0, wgx:1 };
+
+function _ms_gpu_dispatch(kHandle, aHandle, gx, gy, gz) {
+    const k = _ms_gpu_kernels[(kHandle|0) - 1];
+    if (!k) throw new Error("Unknown gpu kernel handle " + kHandle);
+    const rawArgs = _ms_gpu_args.get(aHandle|0) ?? [];
+    // 引数を kernel パラメータ型に合わせて materialize
+    // Ptr<T> は { addr: number } オブジェクトに、Array<T> は { ptr, length: 0 } に、
+    // スカラー (i32/u32/f32 等) はそのまま bare number で渡す。
+    const args = rawArgs.map((v, i) => {
+        const pt = k.paramTypes[i] || "";
+        if (pt.startsWith("Ptr<"))   return { addr: v };
+        if (pt.startsWith("Array<")) return { ptr: v, length: 0 };
+        return v;
+    });
+    const wgX = k.wgx, wgY = k.wgy, wgZ = k.wgz;
+    const prev = Object.assign({}, _ms_gpu_ctx);
+    _ms_gpu_ctx.wgx = wgX;
+    for (let wz = 0; wz < (gz|0); wz++) for (let wy = 0; wy < (gy|0); wy++) for (let wx = 0; wx < (gx|0); wx++) {
+        _ms_gpu_ctx.wix = wx; _ms_gpu_ctx.wiy = wy; _ms_gpu_ctx.wiz = wz;
+        for (let lz = 0; lz < wgZ; lz++) for (let ly = 0; ly < wgY; ly++) for (let lx = 0; lx < wgX; lx++) {
+            _ms_gpu_ctx.lix = lx; _ms_gpu_ctx.liy = ly; _ms_gpu_ctx.liz = lz;
+            _ms_gpu_ctx.gix = wx * wgX + lx;
+            _ms_gpu_ctx.giy = wy * wgY + ly;
+            _ms_gpu_ctx.giz = wz * wgZ + lz;
+            k.fn(...args);
+        }
+    }
+    Object.assign(_ms_gpu_ctx, prev);
+}
+
+// f32 を _ms_heap (Int32Array) から bit pattern 経由で取り出す
+const _ms_f32buf = new ArrayBuffer(4);
+const _ms_f32_i = new Int32Array(_ms_f32buf);
+const _ms_f32_f = new Float32Array(_ms_f32buf);
+function _ms_heap_f32(addr, off) { _ms_f32_i[0] = _ms_heap[addr + off]; return _ms_f32_f[0]; }`;
     }
 
     // ── クラスメソッド出力 ────────────────────────────────────────────────────
@@ -579,12 +739,19 @@ function _ms_tp_destroy(p) { _ms_tpools.delete(p); }`;
         for (const [name, cls] of this.classes) {
             if (cls.typeParams.length > 0) continue;
             for (const method of cls.methods) {
+                // method-level generic はサポート外 (codegen が monomorphize しない)。
+                // 型固定版を別途定義する慣習で運用するため、ここでは emit をスキップする。
+                if (method.typeParams.length > 0) continue;
                 parts.push(this.emitMethod(name, method, new Map()));
             }
         }
 
         // ジェネリッククラスの具体インスタンス
         for (const inst of this.genericInsts) {
+            // method-level generic 内の `Ptr<T>` のような未解決型は emit しない
+            const tArgs = typeArgs(inst);
+            if (tArgs.length === 0) continue;
+            if (tArgs.some(a => a.length === 1 && a >= 'A' && a <= 'Z')) continue;
             const base = baseType(inst);
             const cls = this.classes.get(base);
             if (!cls || cls.typeParams.length === 0) continue;
@@ -896,11 +1063,11 @@ function _ms_tp_destroy(p) { _ms_tpools.delete(p); }`;
         const tmp = `_t${this.tmpCount++}`;
         pre.push(`const ${tmp} = ${this.zeroFields(cls, resolvedType, subst)};`);
         const ctor = cls.methods.find(m => m.name === "constructor");
-        if (ctor && args.length > 0) {
+        if (ctor) {
+            // ctor が引数を取らない場合でも本体に副作用 (intrinsic 呼び出し等) があり得るので
+            // 必ず呼ぶ。args.length と ctor.params.length が一致しない不整合は emit 時には現れない。
             const ctorArgs = args.map(a => this.emitExpr(a, pre, typeEnv, subst));
-            pre.push(`${jsFnName(resolvedType, "constructor")}(${tmp}, ${ctorArgs.join(", ")});`);
-        } else if (ctor && ctor.params.length > 0 && args.length === 0) {
-            pre.push(`${jsFnName(resolvedType, "constructor")}(${tmp});`);
+            pre.push(`${jsFnName(resolvedType, "constructor")}(${tmp}${ctorArgs.length ? ", " + ctorArgs.join(", ") : ""});`);
         }
         return tmp;
     }

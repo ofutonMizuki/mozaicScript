@@ -17,7 +17,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-TESTS=(correct_arith correct_control correct_array correct_recursion correct_classes correct_atomic_api)
+TESTS=(correct_arith correct_control correct_array correct_recursion correct_classes correct_atomic_api correct_gpu)
 GOLDEN=bench/golden
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -27,7 +27,7 @@ UPDATE=0
 
 # --- 一時ワークスペースにソースを複製（import の相対構造を保つ） ---
 mkdir -p "$WORK/bench" "$WORK/sample"
-cp sample/core.moc "$WORK/sample/"
+cp sample/core.moc sample/gpu.moc "$WORK/sample/"
 cp bench/util.moz bench/correct_*.moz "$WORK/bench/"
 mkdir -p "$GOLDEN"
 
@@ -57,6 +57,10 @@ for t in "${TESTS[@]}"; do
 
     # --- C backend (from -O2 ast; gcc -O0 = doc 既定ビルド) ---
     $TS codegen/index.ts "$WORK/sample/core.moc" "$WORK/bench/core.c" >/dev/null 2>&1
+    # gpu.moc は core.moc を import するので必要時のみ codegen (gpu テストで使用)
+    if [ -f "$WORK/sample/gpu.moc.ast.json" ]; then
+        $TS codegen/index.ts "$WORK/sample/gpu.moc"  "$WORK/bench/gpu.c"  >/dev/null 2>&1
+    fi
     $TS codegen/index.ts "$WORK/bench/util.moz"  "$WORK/bench/util.c" >/dev/null 2>&1
     $TS codegen/index.ts "$src"                  "$WORK/bench/$t.c"   >/dev/null 2>&1
     if gcc -O0 -o "$WORK/${t}_c" "$WORK/bench/$t.c" -lm -lpthread 2>"$WORK/gccerr"; then

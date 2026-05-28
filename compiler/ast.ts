@@ -97,6 +97,8 @@ export interface PFunctionDecl {
     access: PAccessMod;
     isMut: boolean;
     isGpu: boolean;
+    // gpu(workgroupSize=N) / gpu(workgroupSize=[X,Y,Z]) → 常に 3 要素。未指定時は [64,1,1]
+    workgroupSize?: [number, number, number];
     name: string;
     typeParams: string[];
     params: { name: string; type: PType }[];

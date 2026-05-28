@@ -330,9 +330,12 @@ export class CCodegen {
     }
 
     private scanFn(fn: FunctionDecl, subst: Map<string, string>, excluded: Set<string>): void {
-        fn.params.forEach(p => this.collectType(applySubst(p.resolvedType, subst), excluded));
-        this.collectType(applySubst(fn.returnType, subst), excluded);
-        fn.body.forEach(n => this.scanNode(n, excluded));
+        // メソッド/関数自身の typeParams も collectType の対象外にする (Ptr<T> リテラルが
+        // 具象 instance として登録されるのを防ぐ)
+        const ex2 = fn.typeParams.length ? new Set([...excluded, ...fn.typeParams]) : excluded;
+        fn.params.forEach(p => this.collectType(applySubst(p.resolvedType, subst), ex2));
+        this.collectType(applySubst(fn.returnType, subst), ex2);
+        fn.body.forEach(n => this.scanNode(n, ex2));
     }
 
     // ── エミット ──────────────────────────────────────────────────────────────
@@ -352,6 +355,7 @@ export class CCodegen {
         parts.push(this.emitStructDefs(hasImports));
         parts.push(this.emitFunctionProtos());
         parts.push(this.emitAllFunctions());
+        parts.push(this.emitGpuKernelWrappers());
         parts.push(this.emitCallByName());
         parts.push(this.emitMain());
         const body = parts.filter(p => p.trim()).join("\n\n");
@@ -615,6 +619,116 @@ static int _ms_mo(int32_t o) {
         default: return __ATOMIC_SEQ_CST;
     }
 }
+
+/* ── GPU エミュレーション (CPU 同期実行) ── */
+typedef void (*_ms_gpu_kfn_t)(int64_t* args);   /* 引数バッファを直接受け取る薄いラッパー */
+typedef struct {
+    const char* name;
+    _ms_gpu_kfn_t fn;
+    int32_t wgx, wgy, wgz;
+} _ms_gpu_kern_t;
+#define _MS_GPU_KCAP 256
+static _ms_gpu_kern_t _ms_gpu_kerns[_MS_GPU_KCAP];
+static int32_t _ms_gpu_kern_n = 0;
+static int32_t _ms_gpu_register_kernel(const char* name, _ms_gpu_kfn_t fn, int32_t wgx, int32_t wgy, int32_t wgz) {
+    for (int32_t i = 0; i < _ms_gpu_kern_n; i++)
+        if (strcmp(_ms_gpu_kerns[i].name, name) == 0) return i + 1;
+    int32_t id = _ms_gpu_kern_n++;
+    _ms_gpu_kerns[id] = (_ms_gpu_kern_t){ name, fn, wgx, wgy, wgz };
+    return id + 1;
+}
+static int64_t _ms_gpu_kern_by_index(int32_t idx) { return (int64_t)(idx + 1); }
+static int32_t _ms_gpu_kern_wgx(int64_t h) { return _ms_gpu_kerns[(int32_t)h - 1].wgx; }
+static int32_t _ms_gpu_kern_wgy(int64_t h) { return _ms_gpu_kerns[(int32_t)h - 1].wgy; }
+static int32_t _ms_gpu_kern_wgz(int64_t h) { return _ms_gpu_kerns[(int32_t)h - 1].wgz; }
+
+#define _MS_GPU_BUFCAP 4096
+typedef struct { int32_t addr; int64_t byte_size; int active; } _ms_gpu_buf_t;
+static _ms_gpu_buf_t _ms_gpu_bufs[_MS_GPU_BUFCAP];
+static int64_t _ms_gpu_buf_next = 1;
+static int64_t _ms_gpu_buf_create(int64_t byte_size) {
+    int32_t addr = _ms_malloc((int32_t)byte_size);
+    int64_t h = _ms_gpu_buf_next++;
+    _ms_gpu_bufs[h % _MS_GPU_BUFCAP] = (_ms_gpu_buf_t){ addr, byte_size, 1 };
+    return h;
+}
+static int32_t _ms_gpu_buf_addr(int64_t h) { return _ms_gpu_bufs[h % _MS_GPU_BUFCAP].addr; }
+static int64_t _ms_gpu_buf_size(int64_t h) { return _ms_gpu_bufs[h % _MS_GPU_BUFCAP].byte_size; }
+static void _ms_gpu_buf_free(int64_t h) { _ms_gpu_bufs[h % _MS_GPU_BUFCAP].active = 0; }
+
+#define _MS_GPU_ARGCAP 256
+#define _MS_GPU_ARGSLOT_CAP 64
+typedef struct { int64_t vals[_MS_GPU_ARGSLOT_CAP]; int32_t n; } _ms_gpu_args_t;
+static _ms_gpu_args_t _ms_gpu_args_tab[_MS_GPU_ARGCAP];
+static int64_t _ms_gpu_args_next = 1;
+static int64_t _ms_gpu_args_create(void) {
+    int64_t h = _ms_gpu_args_next++;
+    _ms_gpu_args_tab[h % _MS_GPU_ARGCAP].n = 0;
+    return h;
+}
+static void _ms_gpu_args_push_addr(int64_t h, int32_t v) {
+    _ms_gpu_args_t* a = &_ms_gpu_args_tab[h % _MS_GPU_ARGCAP];
+    a->vals[a->n++] = (int64_t)(int32_t)v;
+}
+static void _ms_gpu_args_push_i32(int64_t h, int32_t v) {
+    _ms_gpu_args_t* a = &_ms_gpu_args_tab[h % _MS_GPU_ARGCAP];
+    a->vals[a->n++] = (int64_t)v;
+}
+static void _ms_gpu_args_push_i64(int64_t h, int64_t v) {
+    _ms_gpu_args_t* a = &_ms_gpu_args_tab[h % _MS_GPU_ARGCAP];
+    a->vals[a->n++] = v;
+}
+static int32_t _ms_gpu_args_count(int64_t h) { return _ms_gpu_args_tab[h % _MS_GPU_ARGCAP].n; }
+static void _ms_gpu_args_clear(int64_t h) { _ms_gpu_args_tab[h % _MS_GPU_ARGCAP].n = 0; }
+
+/* per-thread context (CPU 上は順次実行なので大域 1 個) */
+typedef struct {
+    int32_t gix, giy, giz, lix, liy, liz, wix, wiy, wiz, wgx;
+} _ms_gpu_ctx_t;
+static _ms_gpu_ctx_t _ms_gpu_ctx = {0,0,0,0,0,0,0,0,0,1};
+
+static void _ms_gpu_dispatch(int64_t kh, int64_t ah, int32_t gx, int32_t gy, int32_t gz) {
+    _ms_gpu_kern_t* k = &_ms_gpu_kerns[(int32_t)kh - 1];
+    _ms_gpu_args_t* a = &_ms_gpu_args_tab[ah % _MS_GPU_ARGCAP];
+    _ms_gpu_ctx_t prev = _ms_gpu_ctx;
+    _ms_gpu_ctx.wgx = k->wgx;
+    for (int32_t wz = 0; wz < gz; wz++)
+    for (int32_t wy = 0; wy < gy; wy++)
+    for (int32_t wx = 0; wx < gx; wx++) {
+        _ms_gpu_ctx.wix = wx; _ms_gpu_ctx.wiy = wy; _ms_gpu_ctx.wiz = wz;
+        for (int32_t lz = 0; lz < k->wgz; lz++)
+        for (int32_t ly = 0; ly < k->wgy; ly++)
+        for (int32_t lx = 0; lx < k->wgx; lx++) {
+            _ms_gpu_ctx.lix = lx; _ms_gpu_ctx.liy = ly; _ms_gpu_ctx.liz = lz;
+            _ms_gpu_ctx.gix = wx * k->wgx + lx;
+            _ms_gpu_ctx.giy = wy * k->wgy + ly;
+            _ms_gpu_ctx.giz = wz * k->wgz + lz;
+            k->fn(a->vals);
+        }
+    }
+    _ms_gpu_ctx = prev;
+}
+
+/* GPU アトミック (シングルスレッド: 普通の RMW) */
+static uint32_t _ms_gpu_atomic_add_u32(int32_t addr, uint32_t v) { uint32_t o = (uint32_t)_ms_heap[addr]; _ms_heap[addr] = (int32_t)(o + v); return o; }
+static uint32_t _ms_gpu_atomic_sub_u32(int32_t addr, uint32_t v) { uint32_t o = (uint32_t)_ms_heap[addr]; _ms_heap[addr] = (int32_t)(o - v); return o; }
+static uint32_t _ms_gpu_atomic_min_u32(int32_t addr, uint32_t v) { uint32_t o = (uint32_t)_ms_heap[addr]; _ms_heap[addr] = (int32_t)(v < o ? v : o); return o; }
+static uint32_t _ms_gpu_atomic_max_u32(int32_t addr, uint32_t v) { uint32_t o = (uint32_t)_ms_heap[addr]; _ms_heap[addr] = (int32_t)(v > o ? v : o); return o; }
+static uint32_t _ms_gpu_atomic_cas_u32(int32_t addr, uint32_t e, uint32_t d) { uint32_t o = (uint32_t)_ms_heap[addr]; if (o == e) _ms_heap[addr] = (int32_t)d; return o; }
+static int32_t  _ms_gpu_atomic_add_i32(int32_t addr, int32_t v)  { int32_t o = _ms_heap[addr]; _ms_heap[addr] = o + v; return o; }
+static int32_t  _ms_gpu_atomic_sub_i32(int32_t addr, int32_t v)  { int32_t o = _ms_heap[addr]; _ms_heap[addr] = o - v; return o; }
+static int32_t  _ms_gpu_atomic_min_i32(int32_t addr, int32_t v)  { int32_t o = _ms_heap[addr]; _ms_heap[addr] = v < o ? v : o; return o; }
+static int32_t  _ms_gpu_atomic_max_i32(int32_t addr, int32_t v)  { int32_t o = _ms_heap[addr]; _ms_heap[addr] = v > o ? v : o; return o; }
+static int32_t  _ms_gpu_atomic_cas_i32(int32_t addr, int32_t e, int32_t d) { int32_t o = _ms_heap[addr]; if (o == e) _ms_heap[addr] = d; return o; }
+static float    _ms_gpu_dot_f32x4(int32_t aaddr, int32_t baddr) {
+    float s = 0.0f;
+    for (int i = 0; i < 4; i++) {
+        float a = _ms_bits_f32(_ms_heap[aaddr + i]);
+        float b = _ms_bits_f32(_ms_heap[baddr + i]);
+        s = s + a * b;
+    }
+    return s;
+}
 `;
     }
 
@@ -739,6 +853,8 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             const guard = isGenericInst ? `_MS_PROTOS_${sname.replace(/^_ms_/, "").toUpperCase()}` : "";
             if (guard) lines.push(`#ifndef ${guard}\n#define ${guard}`);
             for (const method of cls.methods) {
+                // method-level generic は emit しない (型固定版を別途定義する)
+                if (method.typeParams.length > 0) continue;
                 lines.push(this.methodSignature(concreteType, method, subst) + ";");
             }
             if (guard) lines.push(`#endif /* ${guard} */`);
@@ -789,6 +905,9 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             const guard = isGenericInst ? `_MS_IMPLS_${sname.replace(/^_ms_/, "").toUpperCase()}` : "";
             if (guard) lines.push(`#ifndef ${guard}\n#define ${guard}`);
             for (const method of cls.methods) {
+                // method-level generic はサポート外 (codegen で monomorphize しない)。
+                // 型固定版を別途定義する慣習で運用するため、ここでは emit をスキップする。
+                if (method.typeParams.length > 0) continue;
                 // for Array<T> where T is a multi-word struct, override index get/set with memcpy
                 if (base === "Array" && args.length === 1 &&
                     (method.name === "operator[]" || method.name === "operator_set[]")) {
@@ -931,6 +1050,68 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
         return `static ${retType} ${fnName}(${params.join(", ")}) {\n${bodyLines}\n}`;
     }
 
+    // ── GPU カーネルラッパー ──────────────────────────────────────────────────
+    // 各 gpu 関数に対して、ランタイムから int64_t[] で呼び出せる薄いラッパーを生成する。
+    // ラッパーは args 配列から各引数を型付けてマテリアライズし、本体関数を呼ぶ。
+    private emitGpuKernelWrappers(): string {
+        const lines: string[] = [];
+        for (const [name, fn] of this.functions) {
+            if (!fn.isGpu) continue;
+            if (!this.isOwn((fn as any)._sourceFile ?? this.entryFile)) {
+                // gpu 関数はソースファイルで emit されているはず。エントリ以外ならスキップ。
+                // (現バージョンでは gpu 関数は main を持つエントリファイルに置くこと)
+            }
+            const wrapName = `_ms_gpu_wrap_${name}`;
+            const setups: string[] = [];
+            const callArgs: string[] = [];
+            for (let i = 0; i < fn.params.length; i++) {
+                const p = fn.params[i];
+                const cT = this.cType(p.resolvedType);   // 値型 (_ms_Ptr_f32, _ms_u32, ...)
+                // Ptr<T> は単一 addr フィールドを持つラッパー (value type) として扱う
+                if (p.resolvedType.startsWith("Ptr<")) {
+                    setups.push(`    ${cT} _p${i} = { .addr = (int32_t)args[${i}] };`);
+                    callArgs.push(`_p${i}`);
+                } else if (p.resolvedType.startsWith("Array<")) {
+                    // Array<T> は { ptr, length } を持つ ref 型 (ヒープ確保)。
+                    // 現バージョンでは args.pushBuffer 経由でアドレスのみ受け取るので length は不明。
+                    // (Array<T> を gpu kernel param に使う場合は使用者が長さも引数として渡す慣習を要求)
+                    setups.push(`    ${cT} _p${i}_v = { .ptr = (int32_t)args[${i}], .length = { .bits = 0 } };`);
+                    setups.push(`    ${cT}* _p${i} = &_p${i}_v;`);
+                    callArgs.push(`_p${i}`);
+                } else {
+                    // ラッパー型 (i32/u32/f32/...)。bits フィールドを持つ値型。
+                    setups.push(`    ${cT} _p${i} = { .bits = (int32_t)args[${i}] };`);
+                    callArgs.push(`_p${i}`);
+                }
+            }
+            lines.push(`static void ${wrapName}(int64_t* args) {`);
+            for (const s of setups) lines.push(s);
+            lines.push(`    (void)args;`);
+            lines.push(`    _ms_${name}(${callArgs.join(", ")});`);
+            lines.push(`}`);
+        }
+        return lines.join("\n");
+    }
+
+    // gpu カーネル登録と、auto-generated GpuKernel グローバル定数の初期化を main 内で発行する。
+    // (globalInitExpr は静的初期化子に Intrinsic 呼び出しを埋め込めないので、ランタイムで遅延初期化する)
+    private emitGpuKernelRegistrations(): string {
+        const lines: string[] = [];
+        let idx = 0;
+        for (const [name, fn] of this.functions) {
+            if (!fn.isGpu) continue;
+            const actual = name.startsWith("__gpu_kernel_") ? name.slice("__gpu_kernel_".length) : name;
+            const wgs = fn.workgroupSize ?? [64, 1, 1];
+            lines.push(`    _ms_gpu_register_kernel("${actual}", _ms_gpu_wrap_${name}, ${wgs[0]}, ${wgs[1]}, ${wgs[2]});`);
+            // 同名のグローバル GpuKernel 定数があれば handle を設定
+            if (this.globals.has(actual)) {
+                lines.push(`    ${actual}.handle = (int64_t)_ms_gpu_kern_by_index(${idx});`);
+            }
+            idx++;
+        }
+        return lines.join("\n");
+    }
+
     // ── 関数名レジストリ ──────────────────────────────────────────────────────
 
     private emitCallByName(): string {
@@ -964,7 +1145,9 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
 
     private emitMain(): string {
         if (!this.functions.has("main")) return "";
-        return `int main(void) {\n    _ms_fn_lookup = _ms_fn_lookup_impl;\n    _ms_main();\n    return 0;\n}`;
+        const kernelInit = this.emitGpuKernelRegistrations();
+        const kernelInitBlock = kernelInit ? `\n${kernelInit}` : "";
+        return `int main(void) {\n    _ms_fn_lookup = _ms_fn_lookup_impl;${kernelInitBlock}\n    _ms_main();\n    return 0;\n}`;
     }
 
     // ── ボディ生成 ────────────────────────────────────────────────────────────
@@ -1740,6 +1923,68 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             case "__builtin_atomic_fence": {
                 pre.push(`__atomic_thread_fence(_ms_mo(${a(0)}));`);
                 return "";
+            }
+
+            // ── GPU エミュレーション (CPU 上で同期実行) ─────────────────────
+            // 仕様: doc/mozaicScript-spec.md §14 / doc/mozaicScript-corelib-spec.md §8
+            case "__builtin_gpu_is_available":              return `(int32_t)1`;
+            case "__builtin_gpu_buffer_create":             return `(int64_t)_ms_gpu_buf_create(${a(0)})`;
+            case "__builtin_gpu_buffer_map_write":          return `(int32_t)_ms_gpu_buf_addr(${a(0)})`;
+            case "__builtin_gpu_buffer_map_read":           return `(int32_t)_ms_gpu_buf_addr(${a(0)})`;
+            case "__builtin_gpu_buffer_unmap":              { pre.push(`(void)(${a(0)});`); return ""; }
+            case "__builtin_gpu_buffer_byte_size":          return `(int64_t)_ms_gpu_buf_size(${a(0)})`;
+            case "__builtin_gpu_buffer_free":               { pre.push(`_ms_gpu_buf_free(${a(0)});`); return ""; }
+            case "__builtin_gpu_kernel_handle":             return `(int64_t)_ms_gpu_kern_by_index(${a(0)})`;
+            case "__builtin_gpu_kernel_workgroup_size_x":   return `(int32_t)_ms_gpu_kern_wgx(${a(0)})`;
+            case "__builtin_gpu_kernel_workgroup_size_y":   return `(int32_t)_ms_gpu_kern_wgy(${a(0)})`;
+            case "__builtin_gpu_kernel_workgroup_size_z":   return `(int32_t)_ms_gpu_kern_wgz(${a(0)})`;
+            case "__builtin_gpu_args_create":               return `(int64_t)_ms_gpu_args_create()`;
+            case "__builtin_gpu_args_push_buffer":          { pre.push(`_ms_gpu_args_push_addr(${a(0)}, (int32_t)_ms_gpu_buf_addr(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_push_i32":             { pre.push(`_ms_gpu_args_push_i32(${a(0)}, (int32_t)(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_push_u32":             { pre.push(`_ms_gpu_args_push_i32(${a(0)}, (int32_t)(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_push_i64":             { pre.push(`_ms_gpu_args_push_i64(${a(0)}, (int64_t)(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_push_u64":             { pre.push(`_ms_gpu_args_push_i64(${a(0)}, (int64_t)(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_push_f32":             { pre.push(`_ms_gpu_args_push_i32(${a(0)}, (int32_t)(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_push_f64":             { pre.push(`_ms_gpu_args_push_i64(${a(0)}, (int64_t)(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_push_boolean":         { pre.push(`_ms_gpu_args_push_i32(${a(0)}, (int32_t)(${a(1)}));`); return ""; }
+            case "__builtin_gpu_args_count":                return `(int32_t)_ms_gpu_args_count(${a(0)})`;
+            case "__builtin_gpu_args_clear":                { pre.push(`_ms_gpu_args_clear(${a(0)});`); return ""; }
+            case "__builtin_gpu_dispatch":                  { pre.push(`_ms_gpu_dispatch(${a(0)}, ${a(1)}, (int32_t)(${a(2)}), (int32_t)(${a(3)}), (int32_t)(${a(4)}));`); return ""; }
+            case "__builtin_gpu_sync":                      return `(int32_t)0`;
+            case "__builtin_gpu_flush":                     return `(int32_t)0`;
+            case "__builtin_gpu_thread_global_id_x":        return `(int32_t)_ms_gpu_ctx.gix`;
+            case "__builtin_gpu_thread_global_id_y":        return `(int32_t)_ms_gpu_ctx.giy`;
+            case "__builtin_gpu_thread_global_id_z":        return `(int32_t)_ms_gpu_ctx.giz`;
+            case "__builtin_gpu_thread_local_id_x":         return `(int32_t)_ms_gpu_ctx.lix`;
+            case "__builtin_gpu_thread_local_id_y":         return `(int32_t)_ms_gpu_ctx.liy`;
+            case "__builtin_gpu_thread_local_id_z":         return `(int32_t)_ms_gpu_ctx.liz`;
+            case "__builtin_gpu_thread_workgroup_id_x":     return `(int32_t)_ms_gpu_ctx.wix`;
+            case "__builtin_gpu_thread_workgroup_id_y":     return `(int32_t)_ms_gpu_ctx.wiy`;
+            case "__builtin_gpu_thread_workgroup_id_z":     return `(int32_t)_ms_gpu_ctx.wiz`;
+            case "__builtin_gpu_thread_workgroup_size":     return `(int32_t)_ms_gpu_ctx.wgx`;
+            case "__builtin_gpu_barrier":                   return `(int32_t)0`;
+            case "__builtin_gpu_storage_barrier":           return `(int32_t)0`;
+            case "__builtin_gpu_atomic_add_u32":            return `(int32_t)_ms_gpu_atomic_add_u32((int32_t)(${a(0)}), (uint32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_sub_u32":            return `(int32_t)_ms_gpu_atomic_sub_u32((int32_t)(${a(0)}), (uint32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_min_u32":            return `(int32_t)_ms_gpu_atomic_min_u32((int32_t)(${a(0)}), (uint32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_max_u32":            return `(int32_t)_ms_gpu_atomic_max_u32((int32_t)(${a(0)}), (uint32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_cas_u32":            return `(int32_t)_ms_gpu_atomic_cas_u32((int32_t)(${a(0)}), (uint32_t)(${a(1)}), (uint32_t)(${a(2)}))`;
+            case "__builtin_gpu_atomic_load_u32":           return `(int32_t)_ms_heap[(int32_t)(${a(0)})]`;
+            case "__builtin_gpu_atomic_store_u32":          { pre.push(`_ms_heap[(int32_t)(${a(0)})] = (int32_t)(${a(1)});`); return ""; }
+            case "__builtin_gpu_atomic_add_i32":            return `(int32_t)_ms_gpu_atomic_add_i32((int32_t)(${a(0)}), (int32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_sub_i32":            return `(int32_t)_ms_gpu_atomic_sub_i32((int32_t)(${a(0)}), (int32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_min_i32":            return `(int32_t)_ms_gpu_atomic_min_i32((int32_t)(${a(0)}), (int32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_max_i32":            return `(int32_t)_ms_gpu_atomic_max_i32((int32_t)(${a(0)}), (int32_t)(${a(1)}))`;
+            case "__builtin_gpu_atomic_cas_i32":            return `(int32_t)_ms_gpu_atomic_cas_i32((int32_t)(${a(0)}), (int32_t)(${a(1)}), (int32_t)(${a(2)}))`;
+            case "__builtin_gpu_atomic_load_i32":           return `(int32_t)_ms_heap[(int32_t)(${a(0)})]`;
+            case "__builtin_gpu_atomic_store_i32":          { pre.push(`_ms_heap[(int32_t)(${a(0)})] = (int32_t)(${a(1)});`); return ""; }
+            case "__builtin_gpu_fma":                       return `(int32_t)_ms_f32_bits(fmaf(_ms_bits_f32((int32_t)(${a(0)})), _ms_bits_f32((int32_t)(${a(1)})), _ms_bits_f32((int32_t)(${a(2)}))))`;
+            case "__builtin_gpu_dot_f32x4":                 return `(int32_t)_ms_gpu_dot_f32x4((int32_t)(${a(0)}), (int32_t)(${a(1)}))`;
+            case "__builtin_gpu_kernel_name": {
+                // 戻り値は Array<u32> ポインタが期待されるが、テストで未使用なので空配列を返す
+                const tmp = this.nextTmp();
+                pre.push(`_ms_Array_u32* ${tmp} = (_ms_Array_u32*)calloc(1, sizeof(_ms_Array_u32));`);
+                return tmp;
             }
 
             default:

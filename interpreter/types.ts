@@ -63,6 +63,8 @@ export interface FunctionDecl {
     access: AccessModifier;
     isMut: boolean;
     isGpu?: boolean;
+    // gpu 関数のとき workgroupSize は常に 3 要素 [X,Y,Z]
+    workgroupSize?: [number, number, number];
     typeParams: string[];
     params: { name: string; resolvedType: string }[];
     returnType: string;

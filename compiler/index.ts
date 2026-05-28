@@ -16,6 +16,7 @@ import { parse, ParseError } from './parser';
 import { Checker, CheckError, emptyRegistry } from './checker';
 import { BorrowChecker, BorrowError } from './borrowcheck';
 import { Optimizer, OptLevel } from './optimizer';
+import { lowerModule as lowerGpuModule } from './gpulower';
 import { MozaicScriptAST } from '../interpreter/types';
 
 const rawArgs = process.argv.slice(2);
@@ -111,6 +112,16 @@ for (const { filePath } of order) {
         fs.writeFileSync(outPath, JSON.stringify(ast, null, 2), 'utf-8');
         const optTag = optLevel === 2 ? '' : ` [-O${optLevel}]`;
         console.log(`  ✓  ${path.relative(process.cwd(), outPath)}${optTag}`);
+
+        // §14 / GPU IR 仕様: 当該ファイルに gpu 関数があれば .gpu.json を出力
+        // (チェッカー後 / 借用チェック後 / 最適化後の IR をそのまま lower する)
+        const gpuMod = lowerGpuModule(optimized);
+        if (gpuMod) {
+            // <filename>.moz.ast.json と並べて <filename>.moz.gpu.json
+            const gpuOut = filePath + '.gpu.json';
+            fs.writeFileSync(gpuOut, JSON.stringify(gpuMod, null, 2), 'utf-8');
+            console.log(`  ✓  ${path.relative(process.cwd(), gpuOut)}`);
+        }
     } catch (e) {
         if (e instanceof LexError || e instanceof ParseError || e instanceof CheckError || e instanceof BorrowError) {
             console.error(`${filePath}: ${e.message}`);

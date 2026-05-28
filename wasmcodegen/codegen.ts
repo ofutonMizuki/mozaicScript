@@ -213,9 +213,16 @@ export class WasmCodegen {
 
     private detectWrappers(): void {
         for (const [name, cls] of this.classes) {
-            if (cls.typeParams.length > 0) continue;
             const privs = cls.members.filter(m => m.access === "private" || m.access === "mocp public");
             if (privs.length === 1 && privs[0].resolvedType.startsWith("_m")) {
+                // ラッパー判定の追加条件 (JS バックエンドと同じ): constructor が 1 個の _mXX
+                // 引数を取り直接フィールド代入する素通しパターンであること。
+                // GpuArgs のように () コンストラクタ内で intrinsic を呼ぶ初期化型は除外する。
+                const ctor = cls.methods.find(m => m.name === "constructor");
+                if (!ctor || ctor.params.length !== 1) continue;
+                if (!ctor.params[0].resolvedType.startsWith("_m")) continue;
+                // ジェネリック wrapper (Ptr<T> 等) も含める。インスタンス側 (Ptr<f32>) の
+                // baseType でも同じ wrapper エントリを共有する。
                 this.wrappers.set(name, { field: privs[0].name, bits: privs[0].resolvedType });
             }
         }
@@ -334,6 +341,60 @@ export class WasmCodegen {
         this.imp.atan2 = this.mod.addImport("env", "atan2", ["f64", "f64"], ["f64"]);
         this.imp.fmod = this.mod.addImport("env", "fmod", ["f64", "f64"], ["f64"]);
 
+        // ── GPU エミュレーション env imports ───────────────────────────────
+        // 仕様: doc/mozaicScript-spec.md §14 / doc/mozaicScript-corelib-spec.md §8
+        // 実体は wasmcodegen/run.js が JS で提供する (CPU 同期実行)。
+        this.imp.gpu_is_available    = this.mod.addImport("env", "gpu_is_available", [], ["i32"]);
+        this.imp.gpu_buf_create      = this.mod.addImport("env", "gpu_buffer_create", ["i64"], ["i64"]);
+        this.imp.gpu_buf_map_write   = this.mod.addImport("env", "gpu_buffer_map_write", ["i64"], ["i32"]);
+        this.imp.gpu_buf_map_read    = this.mod.addImport("env", "gpu_buffer_map_read", ["i64"], ["i32"]);
+        this.imp.gpu_buf_unmap       = this.mod.addImport("env", "gpu_buffer_unmap", ["i64"], []);
+        this.imp.gpu_buf_byte_size   = this.mod.addImport("env", "gpu_buffer_byte_size", ["i64"], ["i64"]);
+        this.imp.gpu_buf_free        = this.mod.addImport("env", "gpu_buffer_free", ["i64"], []);
+        this.imp.gpu_kern_handle     = this.mod.addImport("env", "gpu_kernel_handle", ["i32"], ["i64"]);
+        this.imp.gpu_kern_wgx        = this.mod.addImport("env", "gpu_kernel_wgx", ["i64"], ["i32"]);
+        this.imp.gpu_kern_wgy        = this.mod.addImport("env", "gpu_kernel_wgy", ["i64"], ["i32"]);
+        this.imp.gpu_kern_wgz        = this.mod.addImport("env", "gpu_kernel_wgz", ["i64"], ["i32"]);
+        this.imp.gpu_args_create     = this.mod.addImport("env", "gpu_args_create", [], ["i64"]);
+        this.imp.gpu_args_push_buf   = this.mod.addImport("env", "gpu_args_push_buffer", ["i64", "i64"], []);
+        this.imp.gpu_args_push_i32   = this.mod.addImport("env", "gpu_args_push_i32", ["i64", "i32"], []);
+        this.imp.gpu_args_push_i64   = this.mod.addImport("env", "gpu_args_push_i64", ["i64", "i64"], []);
+        this.imp.gpu_args_count      = this.mod.addImport("env", "gpu_args_count", ["i64"], ["i32"]);
+        this.imp.gpu_args_clear      = this.mod.addImport("env", "gpu_args_clear", ["i64"], []);
+        this.imp.gpu_dispatch        = this.mod.addImport("env", "gpu_dispatch", ["i64", "i64", "i32", "i32", "i32"], []);
+        this.imp.gpu_sync            = this.mod.addImport("env", "gpu_sync", [], []);
+        this.imp.gpu_flush           = this.mod.addImport("env", "gpu_flush", [], []);
+        // gpu_register_kernel(idx, wgx, wgy, wgz)
+        this.imp.gpu_register_kernel = this.mod.addImport("env", "gpu_register_kernel", ["i32", "i32", "i32", "i32"], []);
+        this.imp.gpu_tid_gix = this.mod.addImport("env", "gpu_tid_gix", [], ["i32"]);
+        this.imp.gpu_tid_giy = this.mod.addImport("env", "gpu_tid_giy", [], ["i32"]);
+        this.imp.gpu_tid_giz = this.mod.addImport("env", "gpu_tid_giz", [], ["i32"]);
+        this.imp.gpu_tid_lix = this.mod.addImport("env", "gpu_tid_lix", [], ["i32"]);
+        this.imp.gpu_tid_liy = this.mod.addImport("env", "gpu_tid_liy", [], ["i32"]);
+        this.imp.gpu_tid_liz = this.mod.addImport("env", "gpu_tid_liz", [], ["i32"]);
+        this.imp.gpu_tid_wix = this.mod.addImport("env", "gpu_tid_wix", [], ["i32"]);
+        this.imp.gpu_tid_wiy = this.mod.addImport("env", "gpu_tid_wiy", [], ["i32"]);
+        this.imp.gpu_tid_wiz = this.mod.addImport("env", "gpu_tid_wiz", [], ["i32"]);
+        this.imp.gpu_tid_wgx = this.mod.addImport("env", "gpu_tid_wgx", [], ["i32"]);
+        this.imp.gpu_atomic_add_u32  = this.mod.addImport("env", "gpu_atomic_add_u32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_sub_u32  = this.mod.addImport("env", "gpu_atomic_sub_u32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_min_u32  = this.mod.addImport("env", "gpu_atomic_min_u32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_max_u32  = this.mod.addImport("env", "gpu_atomic_max_u32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_cas_u32  = this.mod.addImport("env", "gpu_atomic_cas_u32", ["i32", "i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_load_u32 = this.mod.addImport("env", "gpu_atomic_load_u32", ["i32"], ["i32"]);
+        this.imp.gpu_atomic_store_u32= this.mod.addImport("env", "gpu_atomic_store_u32", ["i32", "i32"], []);
+        this.imp.gpu_atomic_add_i32  = this.mod.addImport("env", "gpu_atomic_add_i32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_sub_i32  = this.mod.addImport("env", "gpu_atomic_sub_i32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_min_i32  = this.mod.addImport("env", "gpu_atomic_min_i32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_max_i32  = this.mod.addImport("env", "gpu_atomic_max_i32", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_cas_i32  = this.mod.addImport("env", "gpu_atomic_cas_i32", ["i32", "i32", "i32"], ["i32"]);
+        this.imp.gpu_atomic_load_i32 = this.mod.addImport("env", "gpu_atomic_load_i32", ["i32"], ["i32"]);
+        this.imp.gpu_atomic_store_i32= this.mod.addImport("env", "gpu_atomic_store_i32", ["i32", "i32"], []);
+        // f32 は bit pattern (i32) で受け渡し (WASM codegen の通常規約に合わせる)
+        this.imp.gpu_fma             = this.mod.addImport("env", "gpu_fma", ["i32", "i32", "i32"], ["i32"]);
+        this.imp.gpu_dot_f32x4       = this.mod.addImport("env", "gpu_dot_f32x4", ["i32", "i32"], ["i32"]);
+        this.imp.gpu_kernel_name     = this.mod.addImport("env", "gpu_kernel_name", ["i64"], ["i32"]);
+
         // runtime: alloc_bytes, malloc
         this.allocIdx = this.buildAllocBytes();
         this.mallocIdx = this.buildMalloc();
@@ -356,6 +417,8 @@ export class WasmCodegen {
 
         this.mod.exportMemory("memory");
         this.mod.exportFunc("main", mainIdx);
+        // gpu_buffer_create が JS env から呼ぶための malloc を export する
+        this.mod.exportFunc("_ms_malloc", this.mallocIdx);
         return this.mod.encode();
     }
 
@@ -506,12 +569,32 @@ export class WasmCodegen {
 
     private emitSyntheticMain(initIdx: number): number {
         const fb = new FuncBuilder([], []);
+        // gpu カーネル登録 (init より前に: globals 初期化が __builtin_gpu_kernel_handle を呼ぶ可能性があるため)
+        let kIdx = 0;
+        for (const spec of this.specs) {
+            if (!spec.fn.isGpu) continue;
+            const wgs = spec.fn.workgroupSize ?? [64, 1, 1];
+            fb.i32_const(kIdx)
+              .i32_const(wgs[0])
+              .i32_const(wgs[1])
+              .i32_const(wgs[2])
+              .call(this.imp.gpu_register_kernel);
+            kIdx++;
+        }
         fb.call(initIdx);
         const mainKey = this.fnKey("main");
         const idx = this.fnIndex.get(mainKey);
         if (idx === undefined) throw new Error("no main() function found");
         fb.call(idx);
-        return this.mod.addFunc(fb);
+        const mainIdx = this.mod.addFunc(fb);
+        // gpu カーネル関数を named export として公開
+        let exIdx = 0;
+        for (const spec of this.specs) {
+            if (!spec.fn.isGpu) continue;
+            this.mod.exportFunc(`gpu_kernel_${exIdx}`, spec.index);
+            exIdx++;
+        }
+        return mainIdx;
     }
 
     // ── 文 ────────────────────────────────────────────────────────────────────
@@ -764,7 +847,8 @@ export class WasmCodegen {
         ctx.fb.i32_const(lay.size).call(this.allocIdx).local_set(obj);
         const cls = this.classes.get(baseType(concreteType));
         const ctor = cls?.methods.find(m => m.name === "constructor");
-        if (ctor && (node.args.length > 0 || ctor.params.length > 0)) {
+        // 引数を取らない constructor でも本体に副作用 (intrinsic 呼び出し) があり得るので必ず呼ぶ
+        if (ctor) {
             const subst = new Map<string, string>();
             const args = typeArgs(concreteType);
             cls!.typeParams.forEach((p, i) => subst.set(p, args[i] ?? p));
@@ -1205,6 +1289,66 @@ export class WasmCodegen {
             case "__builtin_threadpool_wait": case "__builtin_threadpool_destroy": { a0(); fb.drop(); return VOID; }
 
             case "__builtin_mem_set": return this.emitMemSet(ctx, node);
+
+            // ── GPU エミュレーション (env imports へ転送) ─────────────────────
+            case "__builtin_gpu_is_available":         fb.call(this.imp.gpu_is_available); return "i32";
+            case "__builtin_gpu_buffer_create":        a0(); fb.call(this.imp.gpu_buf_create); return "i64";
+            case "__builtin_gpu_buffer_map_write":     a0(); fb.call(this.imp.gpu_buf_map_write); return "i32";
+            case "__builtin_gpu_buffer_map_read":      a0(); fb.call(this.imp.gpu_buf_map_read); return "i32";
+            case "__builtin_gpu_buffer_unmap":         a0(); fb.call(this.imp.gpu_buf_unmap); return VOID;
+            case "__builtin_gpu_buffer_byte_size":     a0(); fb.call(this.imp.gpu_buf_byte_size); return "i64";
+            case "__builtin_gpu_buffer_free":          a0(); fb.call(this.imp.gpu_buf_free); return VOID;
+            case "__builtin_gpu_kernel_handle":        a0(); fb.call(this.imp.gpu_kern_handle); return "i64";
+            case "__builtin_gpu_kernel_workgroup_size_x": a0(); fb.call(this.imp.gpu_kern_wgx); return "i32";
+            case "__builtin_gpu_kernel_workgroup_size_y": a0(); fb.call(this.imp.gpu_kern_wgy); return "i32";
+            case "__builtin_gpu_kernel_workgroup_size_z": a0(); fb.call(this.imp.gpu_kern_wgz); return "i32";
+            case "__builtin_gpu_args_create":          fb.call(this.imp.gpu_args_create); return "i64";
+            case "__builtin_gpu_args_push_buffer":     a0(); a1(); fb.call(this.imp.gpu_args_push_buf); return VOID;
+            case "__builtin_gpu_args_push_i32":        a0(); a1(); fb.call(this.imp.gpu_args_push_i32); return VOID;
+            case "__builtin_gpu_args_push_u32":        a0(); a1(); fb.call(this.imp.gpu_args_push_i32); return VOID;
+            case "__builtin_gpu_args_push_i64":        a0(); a1(); fb.call(this.imp.gpu_args_push_i64); return VOID;
+            case "__builtin_gpu_args_push_u64":        a0(); a1(); fb.call(this.imp.gpu_args_push_i64); return VOID;
+            case "__builtin_gpu_args_push_f32":        a0(); a1(); fb.call(this.imp.gpu_args_push_i32); return VOID;
+            case "__builtin_gpu_args_push_f64":        a0(); a1(); fb.call(this.imp.gpu_args_push_i64); return VOID;
+            case "__builtin_gpu_args_push_boolean":    a0(); a1(); fb.call(this.imp.gpu_args_push_i32); return VOID;
+            case "__builtin_gpu_args_count":           a0(); fb.call(this.imp.gpu_args_count); return "i32";
+            case "__builtin_gpu_args_clear":           a0(); fb.call(this.imp.gpu_args_clear); return VOID;
+            case "__builtin_gpu_dispatch":
+                a0(); a1(); a2();
+                this.emitExpr(node.args[3], ctx);
+                this.emitExpr(node.args[4], ctx);
+                fb.call(this.imp.gpu_dispatch); return VOID;
+            case "__builtin_gpu_sync":                 fb.call(this.imp.gpu_sync); return VOID;
+            case "__builtin_gpu_flush":                fb.call(this.imp.gpu_flush); return VOID;
+            case "__builtin_gpu_thread_global_id_x":   fb.call(this.imp.gpu_tid_gix); return "i32";
+            case "__builtin_gpu_thread_global_id_y":   fb.call(this.imp.gpu_tid_giy); return "i32";
+            case "__builtin_gpu_thread_global_id_z":   fb.call(this.imp.gpu_tid_giz); return "i32";
+            case "__builtin_gpu_thread_local_id_x":    fb.call(this.imp.gpu_tid_lix); return "i32";
+            case "__builtin_gpu_thread_local_id_y":    fb.call(this.imp.gpu_tid_liy); return "i32";
+            case "__builtin_gpu_thread_local_id_z":    fb.call(this.imp.gpu_tid_liz); return "i32";
+            case "__builtin_gpu_thread_workgroup_id_x":fb.call(this.imp.gpu_tid_wix); return "i32";
+            case "__builtin_gpu_thread_workgroup_id_y":fb.call(this.imp.gpu_tid_wiy); return "i32";
+            case "__builtin_gpu_thread_workgroup_id_z":fb.call(this.imp.gpu_tid_wiz); return "i32";
+            case "__builtin_gpu_thread_workgroup_size":fb.call(this.imp.gpu_tid_wgx); return "i32";
+            case "__builtin_gpu_barrier":              return VOID;
+            case "__builtin_gpu_storage_barrier":      return VOID;
+            case "__builtin_gpu_atomic_add_u32":       a0(); a1(); fb.call(this.imp.gpu_atomic_add_u32); return "i32";
+            case "__builtin_gpu_atomic_sub_u32":       a0(); a1(); fb.call(this.imp.gpu_atomic_sub_u32); return "i32";
+            case "__builtin_gpu_atomic_min_u32":       a0(); a1(); fb.call(this.imp.gpu_atomic_min_u32); return "i32";
+            case "__builtin_gpu_atomic_max_u32":       a0(); a1(); fb.call(this.imp.gpu_atomic_max_u32); return "i32";
+            case "__builtin_gpu_atomic_cas_u32":       a0(); a1(); a2(); fb.call(this.imp.gpu_atomic_cas_u32); return "i32";
+            case "__builtin_gpu_atomic_load_u32":      a0(); fb.call(this.imp.gpu_atomic_load_u32); return "i32";
+            case "__builtin_gpu_atomic_store_u32":     a0(); a1(); fb.call(this.imp.gpu_atomic_store_u32); return VOID;
+            case "__builtin_gpu_atomic_add_i32":       a0(); a1(); fb.call(this.imp.gpu_atomic_add_i32); return "i32";
+            case "__builtin_gpu_atomic_sub_i32":       a0(); a1(); fb.call(this.imp.gpu_atomic_sub_i32); return "i32";
+            case "__builtin_gpu_atomic_min_i32":       a0(); a1(); fb.call(this.imp.gpu_atomic_min_i32); return "i32";
+            case "__builtin_gpu_atomic_max_i32":       a0(); a1(); fb.call(this.imp.gpu_atomic_max_i32); return "i32";
+            case "__builtin_gpu_atomic_cas_i32":       a0(); a1(); a2(); fb.call(this.imp.gpu_atomic_cas_i32); return "i32";
+            case "__builtin_gpu_atomic_load_i32":      a0(); fb.call(this.imp.gpu_atomic_load_i32); return "i32";
+            case "__builtin_gpu_atomic_store_i32":     a0(); a1(); fb.call(this.imp.gpu_atomic_store_i32); return VOID;
+            case "__builtin_gpu_fma":                  a0(); a1(); a2(); fb.call(this.imp.gpu_fma); return "i32";
+            case "__builtin_gpu_dot_f32x4":            a0(); a1(); fb.call(this.imp.gpu_dot_f32x4); return "i32";
+            case "__builtin_gpu_kernel_name":          a0(); fb.call(this.imp.gpu_kernel_name); return "i32";
 
             default: fb.i32_const(0); return "i32";
         }

@@ -278,12 +278,26 @@ class Parser {
 
     private parseFunctionDecl(access: A.PAccessMod): A.PFunctionDecl {
         const pos = this.pos2();
-        
+
         let isMut = false;
         let isGpu = false;
+        let workgroupSize: [number, number, number] | undefined;
         if (this.at('mut')) { this.advance(); isMut = true; }
-        if (this.at('gpu')) { this.advance(); isGpu = true; }
-        
+        if (this.at('gpu')) {
+            this.advance();
+            isGpu = true;
+            // 任意属性: gpu(workgroupSize=N) または gpu(workgroupSize=[X,Y,Z])
+            if (this.at('(')) {
+                workgroupSize = this.parseGpuAttributes(pos);
+            }
+        }
+        if (!isGpu && workgroupSize) {
+            this.error(`workgroupSize attribute requires 'gpu' modifier`);
+        }
+        if (isGpu && !workgroupSize) {
+            workgroupSize = [64, 1, 1];
+        }
+
         this.eat('function');
         const name = this.eatIdent().value;
         const typeParams = this.parseTypeParamList();
@@ -291,7 +305,47 @@ class Parser {
         this.eat(':');
         const returnType = this.parseType();
         const body = this.parseBlock();
-        return { kind: 'function', access, isMut, isGpu, name, typeParams, params, returnType, body, pos };
+        return { kind: 'function', access, isMut, isGpu, workgroupSize, name, typeParams, params, returnType, body, pos };
+    }
+
+    // gpu(workgroupSize=N) / gpu(workgroupSize=[X,Y,Z]) を読み 3 要素配列で返す
+    private parseGpuAttributes(_pos: A.Pos): [number, number, number] {
+        this.eat('(');
+        let wgs: [number, number, number] = [64, 1, 1];
+        let sawWgs = false;
+        do {
+            const attrName = this.eatIdent().value;
+            this.eat('=');
+            if (attrName === 'workgroupSize') {
+                sawWgs = true;
+                if (this.at('[')) {
+                    this.advance();
+                    const dims: number[] = [];
+                    dims.push(this.eatIntLit());
+                    while (this.at(',')) { this.advance(); dims.push(this.eatIntLit()); }
+                    this.eat(']');
+                    if (dims.length < 1 || dims.length > 3) {
+                        this.error(`workgroupSize array must have 1..3 elements`);
+                    }
+                    wgs = [dims[0], dims[1] ?? 1, dims[2] ?? 1];
+                } else {
+                    const n = this.eatIntLit();
+                    wgs = [n, 1, 1];
+                }
+            } else {
+                this.error(`Unknown gpu attribute '${attrName}' (only 'workgroupSize' is supported)`);
+            }
+        } while (this.at(',') && (this.advance(), true));
+        this.eat(')');
+        if (!sawWgs) this.error(`gpu(...) attribute list must specify workgroupSize`);
+        return wgs;
+    }
+
+    private eatIntLit(): number {
+        const t = this.peek();
+        if (t.kind !== 'intlit') this.error(`Expected integer literal`);
+        this.advance();
+        return Number(t.value);
     }
 
     // ── ブロック・文 ─────────────────────────────────────────────────────
@@ -685,7 +739,9 @@ class Parser {
                 continue;
             }
 
-            if (this.at('function')) {
+            // 関数宣言は `(mut|gpu)* function` の形を許可するため、`function` だけでなく
+            // 修飾子トークンも入り口にする (parseFunctionDecl 側で修飾子を消費する)。
+            if (this.at('function') || this.at('mut') || this.at('gpu')) {
                 decls.push(this.parseFunctionDecl(access));
                 continue;
             }

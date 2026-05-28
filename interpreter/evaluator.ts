@@ -3,7 +3,7 @@ import * as nodePath from "path";
 import { ASTNode, ClassDecl, FunctionDecl, MozaicScriptAST } from "./types";
 import { RuntimeValue, ObjectValue, primitive, voidValue } from "./values";
 import { Environment } from "./environment";
-import { builtins, HeapManager, ThreadManager, runtimeValueToString } from "./builtins";
+import { builtins, HeapManager, ThreadManager, GpuManager, runtimeValueToString } from "./builtins";
 
 export class Evaluator {
     private loadedFiles: Set<string> = new Set();
@@ -71,6 +71,14 @@ export class Evaluator {
                     this.functions.set(`${namespace}.${node.name}`, node);
                 }
                 this.functions.set(node.name, node);
+                // gpu カーネルは GpuManager に登録 (workgroupSize 情報を持つ handle を作る)
+                if (node.isGpu) {
+                    const actualName = node.name.startsWith("__gpu_kernel_")
+                        ? node.name.slice("__gpu_kernel_".length)
+                        : node.name;
+                    const wgs = node.workgroupSize ?? [64, 1, 1];
+                    GpuManager.registerKernel(actualName, wgs[0], wgs[1], wgs[2]);
+                }
             }
         }
 
@@ -345,10 +353,102 @@ export class Evaluator {
             return voidValue();
         }
 
+        // GPU: kernel name index (コンパイラが gpu 関数毎に発行した一意整数) を
+        // 実 kernel ハンドル (GpuManager 管理の handle) に変換する。
+        // 名前テーブルは FunctionDecl.isGpu の登録順と一致する。
+        if (node.name === "__builtin_gpu_kernel_handle") {
+            const nameIdx = (this.eval(node.args[0], env) as any).value as number;
+            // 名前テーブルは GpuManager に登録順で持つ
+            const names = this.gpuKernelOrder();
+            const kname = names[nameIdx];
+            if (kname === undefined) throw new Error(`Unknown gpu kernel index ${nameIdx}`);
+            const info = GpuManager.kernelInfo(this.gpuHandleByName(kname));
+            if (!info) throw new Error(`Gpu kernel '${kname}' not registered`);
+            return primitive(this.gpuHandleByName(kname));
+        }
+
+        // GPU dispatch: kernel handle, args handle, gridX/Y/Z
+        if (node.name === "__builtin_gpu_dispatch") {
+            const kHandle  = (this.eval(node.args[0], env) as any).value as number;
+            const aHandle  = (this.eval(node.args[1], env) as any).value as number;
+            const gx       = (this.eval(node.args[2], env) as any).value as number;
+            const gy       = (this.eval(node.args[3], env) as any).value as number;
+            const gz       = (this.eval(node.args[4], env) as any).value as number;
+            GpuManager.dispatch(kHandle, aHandle, gx, gy, gz, (kernelName, gpuArgs) => {
+                const internalName = "__gpu_kernel_" + kernelName;
+                const fn = this.functions.get(internalName);
+                if (!fn) throw new Error(`gpu kernel function not found: ${internalName}`);
+                // GpuArg[] を kernel の param 型に合わせて ObjectValue/PrimitiveValue 化
+                const rargs: RuntimeValue[] = [];
+                for (let i = 0; i < fn.params.length; i++) {
+                    const a = gpuArgs[i];
+                    if (!a) throw new Error(`gpu dispatch: argument ${i} missing`);
+                    const ptype = fn.params[i].resolvedType;
+                    rargs.push(this.materializeGpuArg(a, ptype));
+                }
+                this.callFunction(fn, rargs, this.globalEnv);
+            });
+            return voidValue();
+        }
+
         const fn = builtins[node.name];
         if (!fn) throw new Error(`Unknown builtin: ${node.name}`);
         const evaledArgs = this.evalArgs(node.args, env);
         return fn(evaledArgs);
+    }
+
+    // 内部: GpuArg を kernel 引数型に合わせて RuntimeValue 化する
+    // Ptr<T>/Array<T> はラッパー ObjectValue を構築、スカラー型はラッパー ObjectValue (bits フィールド) を構築
+    private materializeGpuArg(arg: any, paramType: string): RuntimeValue {
+        if (paramType.startsWith("Ptr<")) {
+            const cls = this.classes.get("Ptr");
+            if (!cls) throw new Error("Ptr class not loaded");
+            return {
+                kind: "object", className: paramType, classDef: cls,
+                fields: { addr: primitive(arg.value) },
+            };
+        }
+        if (paramType.startsWith("Array<")) {
+            const cls = this.classes.get("Array");
+            if (!cls) throw new Error("Array class not loaded");
+            // length 不明 (byteSize ÷ sizeof(T) で算出するべきだが、buffer addr から逆引きする手段がない)
+            // 現状: 引数として渡された buffer のサイズを GpuManager から逆引きしない簡略実装。
+            // 通常はカーネル側で別途要素数を渡す慣習で運用する。
+            return {
+                kind: "object", className: paramType, classDef: cls,
+                fields: { ptr: primitive(arg.value), length: primitive(0) },
+            };
+        }
+        // ラッパー型 (i32 等): bits フィールドを持つ ObjectValue
+        const baseName = paramType.replace(/<.*>$/, "");
+        const cls = this.classes.get(baseName);
+        if (cls) {
+            return {
+                kind: "object", className: paramType, classDef: cls,
+                fields: { bits: primitive(arg.value) },
+            };
+        }
+        return primitive(arg.value);
+    }
+
+    private gpuKernelOrder(): string[] {
+        // FunctionDecl.isGpu を登録順で並べる (functions Map の挿入順 = ファイルロード順)
+        const names: string[] = [];
+        for (const [name, fn] of this.functions) {
+            if (!name.startsWith("__gpu_kernel_")) continue;
+            // 名前空間付きエントリ ("NS.__gpu_kernel_*") はスキップ
+            if (name.includes(".")) continue;
+            if ((fn as any).isGpu) {
+                const actual = name.slice("__gpu_kernel_".length);
+                if (!names.includes(actual)) names.push(actual);
+            }
+        }
+        return names;
+    }
+
+    private gpuHandleByName(name: string): number {
+        // GpuManager.registerKernel は load 時に呼ばれているので idempotent でハンドル取得可
+        return GpuManager.registerKernel(name, 0, 0, 0); // wg=0,0,0 は無視される (既存登録があるので)
     }
 
     private evalSizeof(targetType: string): RuntimeValue {
