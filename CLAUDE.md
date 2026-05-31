@@ -92,16 +92,16 @@ compiler/  →  *.ast.json  →  interpreter/
 - `gpu → gpu` 関数呼び出しはチェッカーで拒否される（インライン展開が未実装。直接再帰も同様）。
 - メソッドレベルジェネリクス（例: `buf.mapWrite<f32>()`）は codegen が非対応。`sample/gpu.moc` が型特殊化版（`mapWriteF32` / `mapReadI32` 等）を提供。
 
-### 既知の仕様–実装乖離
+### 仕様–実装乖離（M1〜M5：解決済み）
 
-仕様として確定済みだが**実装がまだ追従していない**項目（詳細は `OPEN-QUESTIONS.md`）:
+かつて仕様確定済だが実装未追従だった項目。**現在はいずれも実装が追従済み**（履歴は `OPEN-QUESTIONS.md`）:
 
 | 項目 | 仕様の規定 | 実装の現状 |
 |---|---|---|
-| M1 | アトミック命令名は `__builtin_atomic_load32`/`64` など | `interpreter/builtins.ts` は sans-suffix 名で登録 |
-| M2 | `__builtin_malloc`/`__builtin_mem_*` はバイトアドレス | `HeapManager` はワードインデックス（byte/4） |
-| M3 | `BorrowExpr` を evaluator で評価、`FunctionDecl` に `isMut` | `evaluator.ts` が `BorrowExpr` を未処理 |
-| M4 | 文字列リテラルは `operator_set[]` 連鎖に展開 | `evalNewExpr` に `node.elements` 分岐が残存 |
-| M5 | GPU CAS は `gpuCompareExchange` に改名 | `sample/gpu.moc` は `gpuAtomicCas` のまま |
+| M1 | アトミック命令名は `__builtin_atomic_load32`/`64` など | `interpreter/builtins.ts` が suffix 付き名 + `__builtin_atomic_fence` を登録済み |
+| M2 | `__builtin_malloc`/`__builtin_mem_*` はバイトアドレス | `HeapManager` はバイトアドレス化済み（word/4 換算なし、配列ストライドは `*4`） |
+| M3 | `BorrowExpr` を evaluator で評価、`FunctionDecl` に `isMut` | `evaluator.ts` が `BorrowExpr` を処理、`types.ts` に `BorrowExpr`/`isMut` あり |
+| M4 | 文字列リテラルは `operator_set[]` 連鎖に展開 | `evalNewExpr` の `node.elements` 分岐は廃止済み（残存時は例外） |
+| M5 | GPU CAS は `gpuCompareExchange` に改名 | `gpulower.ts`・wgsl/msl codegen とも `gpuCompareExchange` に統一済み（戻り値の `GpuCasResult` 構造体化は未実装。現状はスカラー `oldValue` を返す） |
 
-これらを黙って修正しないこと。複数バックエンドにわたる協調変更が必要で、変更後は `bench/run_tests.sh` で確認する。
+仕様・カタログ・リンタ・実装は整合状態。これらに手を入れる場合は複数バックエンドにわたる協調変更となるため、変更後は `bench/run_tests.sh` で確認する。

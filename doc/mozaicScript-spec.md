@@ -9,7 +9,7 @@
 - **実装依存（IMPLEMENTATION-DEFINED）：** 挙動は各コンパイラバックエンドの実装に委ねられる。ただし、実装者はその挙動を文書化しなければならない。
 
 コアライブラリの仕様については「mozaicScript コアライブラリ仕様書」を参照すること。
-所有権・借用システム（メモリ安全性の自動化）の拡張仕様については「mozaicScript 所有権・借用システム拡張追加仕様書（mozaicScript-ownership-spec.md）」を参照すること。
+所有権・借用システム（メモリ安全性の自動化）については本仕様書 §4.8〜4.10（所有権型・参照型）、§5.7〜5.8（借用演算子・自動レシーバー参照バインド）、§10.4〜10.5（借用チェッカーパイプライン・バックエンドマッピング）で規定する。
 
 ---
 
@@ -912,7 +912,7 @@ const t: string = "she said \"hi\""; // ダブルクォートを含む文字列
 
 ## 14. GPU カーネル仕様 (GPU Kernels)
 
-本章は GPU 上で実行されるコードの記述規則を定義する。GPU 関連クラスおよびホスト側ディスパッチ API はコアライブラリ仕様書 §8 を参照すること。GPU バックエンドの中間表現は IR 仕様書とは独立して [`mozaicScript-gpu-ir-spec.md`](mozaicScript-gpu-ir-spec.md) で規定する。
+本章は GPU 上で実行されるコードの記述規則を定義する。GPU 関連クラスおよびホスト側ディスパッチ API はコアライブラリ仕様書 §8 を参照すること。GPU バックエンドの中間表現は IR 仕様書 Part 2（GPU IR）[`mozaicScript-ir-spec.md`](mozaicScript-ir-spec.md) §G1〜G9 で規定する。
 
 ### 14.1 適合性 (OPTIONAL)
 
@@ -996,7 +996,7 @@ mocp public gpu function ... { ... }      // ❌ エラー
 
 ### 14.4 GPU 関数内で利用可能な組み込み関数
 
-以下の組み込み関数は `gpu` 関数内でのみ呼び出せる（**MUST NOT** 外部から呼ぶ）。実装は対応する GPU IR 命令（[GPU IR 仕様書 §4](mozaicScript-gpu-ir-spec.md)）に直接 lower される。
+以下の組み込み関数は `gpu` 関数内でのみ呼び出せる（**MUST NOT** 外部から呼ぶ）。実装は対応する GPU IR 命令（[IR 仕様書 Part 2 §G7](mozaicScript-ir-spec.md)）に直接 lower される。
 
 #### 14.4.1 スレッド ID / インデックス取得
 

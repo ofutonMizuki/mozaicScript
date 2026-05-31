@@ -19,8 +19,6 @@ const SPEC_FILES = [
     "mozaicScript-spec.md",
     "mozaicScript-corelib-spec.md",
     "mozaicScript-ir-spec.md",
-    "mozaicScript-ownership-spec.md",
-    "mozaicScript-gpu-ir-spec.md",
     "mozaicScript-engine-spec.md",
 ];
 

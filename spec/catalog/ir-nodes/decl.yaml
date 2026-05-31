@@ -58,9 +58,9 @@
   defined_in: mozaicScript-ir-spec.md#5
   must_appear_in_ir_node_list: true
   referenced_in:
-    - mozaicScript-ownership-spec.md#5.1
+    - mozaicScript-ir-spec.md#3
     - mozaicScript-engine-spec.md#3
-  notes: "isMut は所有権拡張で追加 (M3)。IR §5 の例には未掲載で、所有権§5.1 のみが正本"
+  notes: "isMut は所有権拡張で追加 (M3)。IR §3 の注記・言語§5.3/§10.4 が正本"
 
 - id: irnode.VarDecl
   type: VarDecl

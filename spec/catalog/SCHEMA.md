@@ -98,11 +98,11 @@ IR JSON 形式の AST ノードを 1 エントリ 1 ノード種別で記述す�
     - { name: isMut,        type: boolean, required: true }
     - { name: expr,         type: ASTNode, required: true }
     - { name: resolvedType, type: string,  required: true }
-  defined_in: mozaicScript-ownership-spec.md#5.2
+  defined_in: mozaicScript-ir-spec.md#5
   must_appear_in_ir_node_list: true      # IR 仕様§3 のノード一覧に載るべきか
   referenced_in:
-    - mozaicScript-ir-spec.md#1
-  notes: "所有権拡張で追加。IR 仕様本体の§3 一覧に未収録（既知の不整合 M3）"
+    - mozaicScript-ir-spec.md#3
+  notes: "所有権拡張で追加。IR 仕様§3 一覧・§5 定義に収録済み"
 ```
 
 | フィールド | 型 | 必須 | 説明 |

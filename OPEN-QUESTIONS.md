@@ -2,7 +2,7 @@
 
 仕様カタログ YAML 化作業中に、仕様書 Markdown から一意に読み取れず判断保留としたメモ。設計者の判断を待ち、決定後に YAML/Markdown を更新する。
 
-最終更新: 2026-05-31（M1〜M7 全件解決済を反映、spec-lint 違反 0）
+最終更新: 2026-05-31（M1〜M7 全件解決済。所有権/GPU IR 仕様を本体へ統合〔ownership-spec → 言語§4.8〜10.5、gpu-ir-spec → IR 仕様 Part 2〕し参照を更新。M1〜M4 実装追従済み・M5 命名統一済み。spec-lint 違反 0）
 
 ## 解決履歴
 
@@ -25,7 +25,7 @@
 - M5 確定により、CPU 側は現状の `_m32`（成功=1, 失敗=0）を維持、corelib `atomicCas32/64` は boolean を返す（変換責務はコアライブラリ実装が負う）。GPU 側は別 API `gpuCompareExchange` として分離した。
 
 ### Q3. `__builtin_gpu_kernel_handle` の引数型
-- **箇所**: GPU IR 仕様§8。
+- **箇所**: IR 仕様 Part 2 §G8。
 - **問題**: 仕様書の例は `args: ["vecAdd"]`（文字列リテラル）。CLAUDE.md の「既知の仕様未満項目」によれば実装は整数 ID を渡す。仕様と実装が乖離。
 - **影響**: 設計判断（仕様を実装に合わせる/実装を仕様に合わせる）が必要。
 - **暫定対応**: builtins/gpu.yaml の `notes` に既知差異を明記。リンタは型不整合として警告する仕組みは未実装（Q5 参照）。
@@ -66,7 +66,7 @@
 - 暫定: M7 (neg) と `lowers_to` 検査に必要な分は収録済み。残りは AI による継続作業対象。
 
 ### Q10. GPU IR ノードカタログ
-- 本作業のスコープは「CPU 側 IR ノード」のみ。GPU IR (`mozaicScript-gpu-ir-spec.md` §3〜§7) は別カタログ `spec/catalog/gpu-ir-nodes/` を将来追加すべきだが、本タスクでは未着手。
+- 本作業のスコープは「CPU 側 IR ノード」のみ。GPU IR (IR 仕様 Part 2 `mozaicScript-ir-spec.md` §G3〜§G7) は別カタログ `spec/catalog/gpu-ir-nodes/` を将来追加すべきだが、本タスクでは未着手。
 - 影響: GPU IR と CPU 側 IR の境界（`__builtin_gpu_dispatch` 等）の整合性は手動レビューに依存。
 
 ---
@@ -77,20 +77,20 @@
 
 ---
 
-## 仕様確定後に残っている実装タスク（次フェーズ）
+## 仕様確定後の実装タスク（追従状況）
 
-仕様書 + YAML カタログ + リンタは整合状態（`npm run spec-lint` で違反 0）。以下は仕様確定に追従して**実装コード**を更新するタスク。
+仕様書 + YAML カタログ + リンタ + 実装は整合状態（`npm run spec-lint` で違反 0）。M1〜M4 は実装追従済み、M5 は命名を統一済み（戻り値の構造体化のみ残）。以下は各項目の対応内容と残タスク。
 
-### 高優先度（バックエンド全体に影響）
+### M1〜M4（✅ 実装追従済み）
 
-- **M1 implementation**: [`interpreter/builtins.ts`](interpreter/builtins.ts) のアトミック命令テーブルを `__builtin_atomic_load` 等の sans-suffix 登録から `*_load32`/`*_load64` 等の正式名へ分割。`__builtin_atomic_fence` も追加。C / JS / WASM の各バックエンドも同様の lower 名で出力されているか確認。
-- **M2 implementation**: HeapManager および `__builtin_mem_*` / `__builtin_malloc` を word-indexed から byte-indexed へ。各バックエンド (interpreter / codegen / jscodegen / wasmcodegen) の `offset` セマンティクスをバイト単位に統一。`bench/correct_*.moz` の挙動が変わらないことを `bench/run_tests.sh` で確認。
-- **M3 implementation**: [`interpreter/types.ts`](interpreter/types.ts) の `ASTNode` union と `FunctionDecl` interface に `BorrowExpr` / `isMut` を追加（**engine spec の TypeScript と同期**）。[`interpreter/evaluator.ts`](interpreter/evaluator.ts) の `eval()` に `BorrowExpr` ケース追加（所有権§6.2.1 のゼロコスト借用 = `expr` を評価して返すだけでよい）。フロントエンド [`compiler/checker.ts`](compiler/checker.ts) は所有権拡張で対応済みのはずだが要確認。
-- **M4 implementation**: [`interpreter/evaluator.ts:777-799`](interpreter/evaluator.ts#L777-L799) の `evalNewExpr` から `node.elements` 分岐削除。[`compiler/checker.ts`](compiler/checker.ts) の文字列リテラル展開を「`Array<u32>` 生成 + chained `operator_set[]` 呼び出し」を吐く形に変更。codegen / jscodegen / wasmcodegen の文字列展開コードも追従。
+- **M1** ✅: [`interpreter/builtins.ts`](interpreter/builtins.ts) のアトミック命令テーブルを `__builtin_atomic_load` 等の sans-suffix 登録から `*_load32`/`*_load64` 等の正式名へ分割。`__builtin_atomic_fence` も追加。C / JS / WASM の各バックエンドも同様の lower 名で出力されているか確認。
+- **M2** ✅: HeapManager および `__builtin_mem_*` / `__builtin_malloc` を word-indexed から byte-indexed へ。各バックエンド (interpreter / codegen / jscodegen / wasmcodegen) の `offset` セマンティクスをバイト単位に統一。`bench/correct_*.moz` の挙動が変わらないことを `bench/run_tests.sh` で確認。
+- **M3** ✅: [`interpreter/types.ts`](interpreter/types.ts) の `ASTNode` union と `FunctionDecl` interface に `BorrowExpr` / `isMut` を追加（**engine spec の TypeScript と同期**）。[`interpreter/evaluator.ts`](interpreter/evaluator.ts) の `eval()` に `BorrowExpr` ケース追加（所有権§6.2.1 のゼロコスト借用 = `expr` を評価して返すだけでよい）。フロントエンド [`compiler/checker.ts`](compiler/checker.ts) は所有権拡張で対応済みのはずだが要確認。
+- **M4** ✅: [`interpreter/evaluator.ts:777-799`](interpreter/evaluator.ts#L777-L799) の `evalNewExpr` から `node.elements` 分岐削除。[`compiler/checker.ts`](compiler/checker.ts) の文字列リテラル展開を「`Array<u32>` 生成 + chained `operator_set[]` 呼び出し」を吐く形に変更。codegen / jscodegen / wasmcodegen の文字列展開コードも追従。
 
-### 中優先度（GPU・ポインタ周り）
+### M5〜M6（残タスク）
 
-- **M5 implementation**: [`sample/gpu.moc`](sample/gpu.moc) の `gpuAtomicCas` を `gpuCompareExchange` に改名、戻り値型 `GpuCasResult` plain class を追加。[`wgslcodegen/`](wgslcodegen/) と [`mslcodegen/`](mslcodegen/) の lower で WGSL `atomicCompareExchangeWeak` / Metal の対応命令を struct 戻り値に lower。
+- **M5**（命名統一済み、残: 戻り値の構造体化）: GPU CAS の命名は [`compiler/gpulower.ts`](compiler/gpulower.ts)（`__builtin_gpu_atomic_cas_{u32,i32}` → `gpuCompareExchange`/`gpuCompareExchangeI32`）と [`wgslcodegen/`](wgslcodegen/) / [`mslcodegen/`](mslcodegen/) で `gpuCompareExchange` に統一済み。残タスクは戻り値を `GpuCasResult` plain class（`{ oldValue, exchanged }`）にすること。現状 wgsl/msl は WGSL `atomicCompareExchangeWeak(...).old_value` 等のスカラー `oldValue` を返す。（注: CAS ラッパは `sample/gpu.moc` ではなく intrinsic 経由）
 - **M6 implementation**: コアライブラリの `Ptr<T>` を plain class 対応に拡張。`__builtin_sizeof<T>` を使って deref/write が plain class のサイズに応じてフィールド単位読み書きする実装。CPU 側 `Ptr<T>` と GPU 側 `ptr<T>` で同じ T が扱える境界を [`sample/gpu.moc`](sample/gpu.moc) の `GpuArgs.pushBufferMut` で揃える。
 
 ### 低優先度（仕様外、運用改善）

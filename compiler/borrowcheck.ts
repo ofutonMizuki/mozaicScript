@@ -1,6 +1,6 @@
 // compiler/borrowcheck.ts — 借用チェッカー + drop/__builtin_free 自動挿入パス
 //
-// 仕様: doc/mozaicScript-ownership-spec.md §4
+// 仕様: doc/mozaicScript-spec.md §4.8〜4.10 (所有権・参照型) / §5.7 (借用演算子) / §10.4 (借用チェッカーパイプライン)
 //
 // このパスは型解決済み IR (interpreter/types.ts) に対して動作する。
 // 1. 変数の状態 (Uninit / Alive / Moved) を追跡

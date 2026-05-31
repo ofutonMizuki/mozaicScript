@@ -1,6 +1,6 @@
 // compiler/gpulower.ts — CPU 側 IR の gpu FunctionDecl を GPU IR (.gpu.json) に lower する。
 //
-// 仕様: doc/mozaicScript-gpu-ir-spec.md
+// 仕様: doc/mozaicScript-ir-spec.md Part 2 (GPU IR §G1〜G9)
 //
 // 入力: チェッカーが出力した IR ノード列のうち isGpu=true の FunctionDecl
 // 出力: { mozaicScriptGpu: "1.0", kernels: GpuKernelIR[] }
@@ -109,14 +109,14 @@ class Lower {
                     __builtin_gpu_atomic_sub_u32:   { name: 'gpuAtomicSub',   ret: 'u32' },
                     __builtin_gpu_atomic_min_u32:   { name: 'gpuAtomicMin',   ret: 'u32' },
                     __builtin_gpu_atomic_max_u32:   { name: 'gpuAtomicMax',   ret: 'u32' },
-                    __builtin_gpu_atomic_cas_u32:   { name: 'gpuAtomicCas',   ret: 'u32' },
+                    __builtin_gpu_atomic_cas_u32:   { name: 'gpuCompareExchange',   ret: 'u32' },
                     __builtin_gpu_atomic_load_u32:  { name: 'gpuAtomicLoad',  ret: 'u32' },
                     __builtin_gpu_atomic_store_u32: { name: 'gpuAtomicStore', ret: 'void' },
                     __builtin_gpu_atomic_add_i32:   { name: 'gpuAtomicAddI32',   ret: 'i32' },
                     __builtin_gpu_atomic_sub_i32:   { name: 'gpuAtomicSubI32',   ret: 'i32' },
                     __builtin_gpu_atomic_min_i32:   { name: 'gpuAtomicMinI32',   ret: 'i32' },
                     __builtin_gpu_atomic_max_i32:   { name: 'gpuAtomicMaxI32',   ret: 'i32' },
-                    __builtin_gpu_atomic_cas_i32:   { name: 'gpuAtomicCasI32',   ret: 'i32' },
+                    __builtin_gpu_atomic_cas_i32:   { name: 'gpuCompareExchangeI32',   ret: 'i32' },
                     __builtin_gpu_atomic_load_i32:  { name: 'gpuAtomicLoadI32',  ret: 'i32' },
                     __builtin_gpu_atomic_store_i32: { name: 'gpuAtomicStoreI32', ret: 'void' },
                     __builtin_gpu_fma:       { name: 'gpuFma',       ret: 'f32' },

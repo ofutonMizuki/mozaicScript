@@ -88,8 +88,8 @@
     - { name: isMut,        type: boolean, required: true }
     - { name: expr,         type: ASTNode, required: true }
     - { name: resolvedType, type: string,  required: true }
-  defined_in: mozaicScript-ownership-spec.md#5.2
+  defined_in: mozaicScript-ir-spec.md#5
   must_appear_in_ir_node_list: true
   referenced_in:
-    - mozaicScript-ir-spec.md#1
-  notes: "所有権拡張で新規追加 (M3)。IR §3 のノード一覧表に未収録、§5 のノード定義にも未収録。IR §1 の注記で参照を示すのみ"
+    - mozaicScript-ir-spec.md#3
+  notes: "所有権拡張で追加 (M3)。IR §3 のノード一覧・§5 のノード定義に収録済み"

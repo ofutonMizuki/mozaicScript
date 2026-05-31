@@ -1,6 +1,6 @@
 # メモリ管理・サイズ取得命令カタログ
 # 言語仕様§9.4 / §9.6 が正本。
-# 既知矛盾 M2: 言語§3.2 は「バイトアドレス」と規定するが、本節では malloc がワードアドレスを返す。
+# M2 解決済 (2026-05-31): 言語§3.2 に合わせ malloc はバイトアドレスを返し、mem_* の offset もバイト単位。
 
 - id: builtin.memory.malloc
   name: __builtin_malloc
@@ -20,7 +20,7 @@
   returns: void
   defined_in: mozaicScript-spec.md#9.4
   referenced_in:
-    - mozaicScript-ownership-spec.md#4.1
+    - mozaicScript-spec.md#10.4
   notes: "所有権拡張ではフロントエンドがスコープ終端に自動挿入する"
 
 - id: builtin.memory.mem_read8

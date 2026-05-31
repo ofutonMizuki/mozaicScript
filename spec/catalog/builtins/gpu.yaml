@@ -1,7 +1,7 @@
 # GPU 関連の命令カタログ
 # 2 種類が混在:
-#   1) GPU カーネル内組み込み関数（言語§14.4）。lower 後は GPU IR §7 の文字列値になる
-#   2) CPU 側ホスト連携 __builtin_gpu_* (GPU IR §8 が正本)
+#   1) GPU カーネル内組み込み関数（言語§14.4）。lower 後は IR 仕様 Part 2 §G7 の文字列値になる
+#   2) CPU 側ホスト連携 __builtin_gpu_* (IR 仕様 Part 2 §G8 が正本)
 
 # ───────── ホスト連携 (CPU 側 IR、GPU IR§8 が正本) ─────────
 - id: builtin.gpu.dispatch
@@ -14,7 +14,7 @@
     - { name: gridY,        type: _m32 }
     - { name: gridZ,        type: _m32 }
   returns: void
-  defined_in: mozaicScript-gpu-ir-spec.md#8
+  defined_in: mozaicScript-ir-spec.md#G8
   notes: "コアライブラリ gpuDispatch() の lower 形式"
 
 - id: builtin.gpu.sync
@@ -22,7 +22,7 @@
   group: gpu.host
   params: []
   returns: void
-  defined_in: mozaicScript-gpu-ir-spec.md#8
+  defined_in: mozaicScript-ir-spec.md#G8
   notes: "コアライブラリ gpuSync() の lower 形式"
 
 - id: builtin.gpu.flush
@@ -30,7 +30,7 @@
   group: gpu.host
   params: []
   returns: void
-  defined_in: mozaicScript-gpu-ir-spec.md#8
+  defined_in: mozaicScript-ir-spec.md#G8
   notes: "コアライブラリ gpuFlush() の lower 形式"
 
 - id: builtin.gpu.kernel_handle
@@ -40,7 +40,7 @@
     - { name: kernelName, type: string }
   returns: _m64
   return_semantics: "カーネル名から GpuKernel の内部ハンドルを取得"
-  defined_in: mozaicScript-gpu-ir-spec.md#8
+  defined_in: mozaicScript-ir-spec.md#G8
   notes: "CLAUDE.md に「実装は整数 ID を渡す」既知のフォーマット差異あり（仕様では string）"
 
 # ───────── GPU カーネル内組み込み (言語§14.4 / GPU IR§7) ─────────
@@ -52,7 +52,7 @@
   return_semantics: "グローバルスレッド ID (X 次元)。WGSL global_invocation_id.x"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.1
+    - mozaicScript-ir-spec.md#G7.1
   notes: "gpu 関数内専用。lower 先は GPU IR の GpuCallBuiltin.name=\"gpuGlobalIdX\" の別名"
 
 - id: builtin.gpu.global_id_x
@@ -63,7 +63,7 @@
   return_semantics: "グローバルスレッド ID X"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.1
+    - mozaicScript-ir-spec.md#G7.1
 
 - id: builtin.gpu.global_id_y
   name: gpuGlobalIdY
@@ -73,7 +73,7 @@
   return_semantics: "グローバルスレッド ID Y"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.1
+    - mozaicScript-ir-spec.md#G7.1
 
 - id: builtin.gpu.global_id_z
   name: gpuGlobalIdZ
@@ -83,7 +83,7 @@
   return_semantics: "グローバルスレッド ID Z"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.1
+    - mozaicScript-ir-spec.md#G7.1
 
 - id: builtin.gpu.local_id
   name: gpuLocalId
@@ -93,7 +93,7 @@
   return_semantics: "ワークグループ内ローカル ID (X 次元)"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.1
+    - mozaicScript-ir-spec.md#G7.1
 
 - id: builtin.gpu.workgroup_size
   name: gpuWorkgroupSize
@@ -103,7 +103,7 @@
   return_semantics: "宣言された workgroupSize の X 次元値（コンパイル時定数）"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.1
+    - mozaicScript-ir-spec.md#G7.1
 
 - id: builtin.gpu.barrier
   name: gpuBarrier
@@ -112,7 +112,7 @@
   returns: void
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.2
+    - mozaicScript-ir-spec.md#G7.2
   notes: "ワークグループバリア (WGSL workgroupBarrier)"
 
 - id: builtin.gpu.storage_barrier
@@ -122,7 +122,7 @@
   returns: void
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.2
+    - mozaicScript-ir-spec.md#G7.2
 
 - id: builtin.gpu.atomic_add
   name: gpuAtomicAdd
@@ -134,7 +134,7 @@
   return_semantics: "加算前の値"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.3
+    - mozaicScript-ir-spec.md#G7.3
 
 - id: builtin.gpu.compare_exchange
   name: gpuCompareExchange
@@ -147,7 +147,7 @@
   return_semantics: "{ oldValue: u32, exchanged: boolean } を返す。WGSL atomicCompareExchangeWeak の構造体相当"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.3
+    - mozaicScript-ir-spec.md#G7.3
   notes: "M5 解決 (2026-05-31): gpuAtomicCas を gpuCompareExchange に改名し戻り値を構造体に。CPU 系 __builtin_atomic_cas32 (成功=1/失敗=0) とは命名で意図的に差別化"
 
 - id: builtin.gpu.atomic_load
@@ -159,7 +159,7 @@
   return_semantics: "アトミックロード値"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.3
+    - mozaicScript-ir-spec.md#G7.3
 
 - id: builtin.gpu.atomic_store
   name: gpuAtomicStore
@@ -170,7 +170,7 @@
   returns: void
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.3
+    - mozaicScript-ir-spec.md#G7.3
 
 - id: builtin.gpu.fma
   name: gpuFma
@@ -183,7 +183,7 @@
   return_semantics: "a*b + c (融合積和)"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.4
+    - mozaicScript-ir-spec.md#G7.4
 
 - id: builtin.gpu.dot_f32x4
   name: gpuDotF32x4
@@ -195,4 +195,4 @@
   return_semantics: "4 要素 f32 内積"
   defined_in: mozaicScript-spec.md#14.4
   referenced_in:
-    - mozaicScript-gpu-ir-spec.md#7.4
+    - mozaicScript-ir-spec.md#G7.4
