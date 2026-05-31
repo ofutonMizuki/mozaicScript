@@ -12,8 +12,6 @@
 - バックエンドはこのJSONのみをインプットとして動作しなければならない（**MUST**）
 - バックエンドは `resolvedType` を信頼してよく、独自に型推論を行う必要はない
 
-> **注意:** 所有権・借用システムに関連する拡張（`BorrowExpr`ノードや`isMut`フィールド等）の詳細については、「[mozaicScript 所有権・借用システム拡張追加仕様書](mozaicScript-ownership-spec.md)」を参照すること。
-
 ---
 
 ## 2. トップレベル構造
@@ -36,7 +34,7 @@
 | 文 | `IfStmt`, `ElseStmt`, `WhileStmt`, `ForStmt`, `ReturnStmt`, `BreakStmt`, `BlockStmt` |
 | リテラル | `RawLiteral` |
 
-`BorrowExpr` および `FunctionDecl.isMut` フィールドは所有権・借用システム拡張で導入された（**MUST**）。詳細仕様は所有権・借用システム拡張追加仕様書§5 を参照。
+`BorrowExpr` および `FunctionDecl.isMut` フィールドは所有権・借用システムで導入された（**MUST**）。詳細仕様は言語仕様書 §4.9/4.10 を参照。
 
 > スレッド/ミューテックス/条件変数/アトミックなどの並行プリミティブは専用の IR ノードを持たず、コアライブラリ (`.moc`) のクラスメソッド経由で `Intrinsic`（`__builtin_thread_*`, `__builtin_mutex_*`, `__builtin_condvar_*`, `__builtin_atomic_*32/64`, `__builtin_atomic_fence`）として出力される。各バックエンドはこれら `Intrinsic` をネイティブ同期プリミティブに lower する。
 
@@ -136,7 +134,7 @@
 }
 ```
 
-`isMut`（boolean、**MUST**）は所有権・借用システム拡張で導入されたフィールド。`mut` 修飾子が付与されたメソッドおよび関数では `true`、それ以外は `false`。詳細は所有権・借用システム拡張追加仕様書§5.1 を参照。
+`isMut`（boolean、**MUST**）は所有権・借用システムで導入されたフィールド。`mut` 修飾子が付与されたメソッドおよび関数では `true`、それ以外は `false`。言語仕様書 §5.3 および §6.6 を参照。
 
 ### MethodCall（演算子オーバーロード脱糖済み）
 
@@ -367,6 +365,8 @@
 | `expr` | ASTNode | 借用対象となる式（通常は `Identifier` または `MemberAccess`） |
 | `resolvedType` | string | 単一化・解決済みの完全な参照型名（`"&T"` または `"&mut T"`） |
 
+借用演算子の構文詳細および借用ルールは言語仕様書 §5.7/5.8/4.9/4.10 を参照すること。
+
 ### ReturnStmt
 
 ```json
@@ -539,3 +539,322 @@ public function add(a: i32, b: i32): i32 {
     ]
 }
 ```
+
+---
+
+# Part 2: GPU IR 仕様（GPU Intermediate Representation）
+
+## G1. 凡例および適合性
+
+- 本 Part は GPU カーネルのプラットフォーム中立な中間表現（**GPU IR**）を定義する。
+- mozaicScript コンパイラのフロントエンドは、`gpu` 修飾子付き関数（言語仕様書 §14）を CPU 側 IR ではなく**本 IR** に lower する。
+- WGSL / SPIR-V / CUDA PTX / Metal MSL などの実 GPU バックエンドは、本 IR を入力として最終形式を生成する。
+- 本仕様の準拠は GPU バックエンドに対してのみ要求される。CPU 専用バックエンドは本 IR を生成・消費する必要はない（**OPTIONAL**）。
+
+---
+
+## G2. ファイル形式
+
+GPU IR は JSON 形式で表現される。コンパイラは `.gpu.json` 拡張子で 1 つのソースファイルにつき 1 つの GPU IR ファイルを出力する。例: `vecadd.moz` → `vecadd.gpu.json`。
+
+```json
+{
+    "mozaicScriptGpu": "1.0",
+    "kernels": [ <GpuKernelIR>, ... ]
+}
+```
+
+| フィールド | 型 | 説明 |
+|------------|----|------|
+| `mozaicScriptGpu` | string | 本仕様のバージョン番号（現行 `"1.0"`） |
+| `kernels` | `GpuKernelIR[]` | 当該ファイルに含まれる全 GPU カーネルの IR |
+
+ソース中に `gpu` 関数が存在しない場合、コンパイラは `.gpu.json` ファイルを生成しない（**MUST NOT**）。
+
+---
+
+## G3. カーネルノード（`GpuKernelIR`）
+
+```json
+{
+    "name": "vecAdd",
+    "workgroupSize": [64, 1, 1],
+    "params": [
+        { "name": "out", "type": "ptr<f32>", "binding": 0 },
+        { "name": "a",   "type": "ptr<f32>", "binding": 1 },
+        { "name": "b",   "type": "ptr<f32>", "binding": 2 },
+        { "name": "n",   "type": "u32",      "binding": 3 }
+    ],
+    "locals": [
+        { "name": "i", "type": "u32" }
+    ],
+    "body": [ <GpuStmt>, ... ]
+}
+```
+
+| フィールド | 型 | 説明 |
+|------------|-----|------|
+| `name` | string | カーネル関数名（フロントエンドの関数名と一致） |
+| `workgroupSize` | `[u32, u32, u32]` | `gpu(workgroupSize=...)` で宣言された X/Y/Z 次元値。1次元のみ指定時は Y/Z が `1` |
+| `params` | `GpuParam[]` | カーネル引数（ソースの宣言順） |
+| `locals` | `GpuLocal[]` | 関数内ローカル変数の集合（事前宣言） |
+| `body` | `GpuStmt[]` | 関数本体の文の列 |
+
+### G3.1 `GpuParam`
+
+| フィールド | 型 | 説明 |
+|------------|-----|------|
+| `name` | string | 引数名 |
+| `type` | `GpuType` | 引数の型 |
+| `binding` | u32 | 論理バインディングインデックス（WGSL の `@binding(n)`、SPIR-V の descriptor binding に対応）。ポインタ型は `storage_buffer`、スカラー型は `uniform` として lower される |
+
+`binding` 値はカーネル内でユニーク。コンパイラは順序 0, 1, 2, ... を割り当てる（**SHOULD**）。
+
+### G3.2 `GpuLocal`
+
+`GpuVarDecl` で導入されるローカル変数を事前列挙する（SPIR-V が関数先頭で変数領域を確保するために使用）。
+
+| フィールド | 型 | 説明 |
+|------------|-----|------|
+| `name` | string | 変数名 |
+| `type` | `GpuType` | 変数の型 |
+
+---
+
+## G4. 型（`GpuType`）
+
+GPU IR で使用可能な型はすべて文字列で表現する。
+
+| 型タグ | 説明 | 対応する CPU 側型 |
+|--------|------|-----------------|
+| `"i32"` / `"u32"` / `"i64"` / `"u64"` | 整数 | 同名 |
+| `"f32"` / `"f64"` | 浮動小数点 | 同名 |
+| `"bool"` | 真偽値 | `boolean` |
+| `"ptr<T>"` | グローバルメモリ上の T 要素列への参照（`T` は上記スカラー型または `"struct:Name"`） | `Ptr<T>` |
+| `"vec<T,N>"` | N 要素ベクトル（N は 2/3/4、T は `i32`/`u32`/`f32`） | 内部利用のみ |
+| `"array<T,N>"` | 固定長 N 要素配列（N はコンパイル時定数） | 同名 |
+| `"struct:Name"` | ユーザ定義 plain class | 同名 |
+
+ジェネリック型・参照型・ボックス化されたラッパー型は本 IR に現れない（**MUST NOT**）。コンパイラは `i32` などのラッパークラスを対応するスカラー（`"i32"`）に事前 unbox する（**MUST**）。
+
+---
+
+## G5. 文（`GpuStmt`）
+
+すべての文は `type` フィールドで判別される。
+
+### G5.1 `GpuVarDecl`
+
+```json
+{ "type": "GpuVarDecl", "name": "i", "value": <GpuExpr> }
+```
+
+型は事前に `kernel.locals` で宣言済みでなければならない。
+
+### G5.2 `GpuAssign`
+
+```json
+{ "type": "GpuAssign", "target": <GpuLValue>, "value": <GpuExpr> }
+```
+
+`GpuLValue` は次のいずれか。
+
+- `{ "type": "GpuIdent", "name": "i" }`
+- `{ "type": "GpuIndex", "base": <GpuExpr>, "index": <GpuExpr> }` — `ptr<T>` / `array<T,N>` への要素書き込み
+- `{ "type": "GpuField", "base": <GpuExpr>, "field": "x" }` — struct/vec フィールド書き込み
+
+### G5.3 `GpuIf`
+
+```json
+{
+    "type": "GpuIf",
+    "cond": <GpuExpr>,
+    "then": [ <GpuStmt>, ... ],
+    "else": [ <GpuStmt>, ... ]
+}
+```
+
+`else` はオプショナル。
+
+### G5.4 `GpuFor`
+
+```json
+{
+    "type": "GpuFor",
+    "init": <GpuStmt>,
+    "cond": <GpuExpr>,
+    "update": <GpuStmt>,
+    "body": [ <GpuStmt>, ... ]
+}
+```
+
+### G5.5 `GpuWhile`
+
+```json
+{ "type": "GpuWhile", "cond": <GpuExpr>, "body": [ <GpuStmt>, ... ] }
+```
+
+### G5.6 `GpuBreak`
+
+```json
+{ "type": "GpuBreak" }
+```
+
+### G5.7 `GpuReturn`
+
+GPU カーネルの戻り値型は常に `void`（言語仕様書 §14.5）なので、`GpuReturn` は値を持たない。
+
+```json
+{ "type": "GpuReturn" }
+```
+
+### G5.8 `GpuExprStmt`
+
+副作用のための式（主に void 呼び出し）。
+
+```json
+{ "type": "GpuExprStmt", "expr": <GpuExpr> }
+```
+
+---
+
+## G6. 式（`GpuExpr`）
+
+### G6.1 `GpuLiteral`
+
+```json
+{ "type": "GpuLiteral", "valueType": "u32", "value": 42 }
+{ "type": "GpuLiteral", "valueType": "f32", "value": 3.14 }
+{ "type": "GpuLiteral", "valueType": "bool", "value": true }
+```
+
+### G6.2 `GpuIdent`
+
+```json
+{ "type": "GpuIdent", "name": "i", "resolvedType": "u32" }
+```
+
+参照する識別子はパラメータかローカル変数のみ。
+
+### G6.3 `GpuBinOp`
+
+```json
+{ "type": "GpuBinOp", "op": "+", "lhs": <GpuExpr>, "rhs": <GpuExpr>, "resolvedType": "f32" }
+```
+
+| `op` | 説明 |
+|------|------|
+| `+`, `-`, `*`, `/`, `%` | 算術 |
+| `==`, `!=`, `<`, `<=`, `>`, `>=` | 比較 → `bool` |
+| `&&`, `\|\|` | 論理 → `bool` |
+| `&`, `\|`, `^`, `<<`, `>>` | ビット演算（整数のみ） |
+
+両辺の型は一致しなければならない（**MUST**）。暗黙の型変換はない。
+
+### G6.4 `GpuUnaryOp`
+
+```json
+{ "type": "GpuUnaryOp", "op": "-", "expr": <GpuExpr>, "resolvedType": "f32" }
+```
+
+`op` は `-`（符号反転）または `!`（論理否定）。
+
+### G6.5 `GpuIndex`
+
+`ptr<T>` または `array<T,N>` への読み出し。
+
+```json
+{ "type": "GpuIndex", "base": <GpuExpr>, "index": <GpuExpr>, "resolvedType": "f32" }
+```
+
+### G6.6 `GpuField`
+
+struct/vec フィールド読み出し。
+
+```json
+{ "type": "GpuField", "base": <GpuExpr>, "field": "x", "resolvedType": "f32" }
+```
+
+### G6.7 `GpuCallBuiltin`
+
+GPU 組み込み命令の呼び出し。本 IR で許される唯一の関数呼び出し（**MUST**）。本バージョンでは GPU 関数間呼び出しは未対応であり、フロントエンドがインライン展開する（**MUST**）。
+
+```json
+{
+    "type": "GpuCallBuiltin",
+    "name": "gpuGlobalId",
+    "args": [ <GpuExpr>, ... ],
+    "resolvedType": "u32"
+}
+```
+
+`name` の取りうる値は G7。
+
+---
+
+## G7. GPU 組み込み命令一覧
+
+言語仕様書 §14.4 で公開される組み込み関数は、本 IR では `GpuCallBuiltin.name` として以下の文字列値に lower される。
+
+### G7.1 スレッド ID / ワークグループ情報
+
+| `name` | 戻り型 | WGSL 対応 | SPIR-V 対応 |
+|--------|--------|-----------|-------------|
+| `"gpuGlobalIdX"` / `"gpuGlobalIdY"` / `"gpuGlobalIdZ"` | u32 | `@builtin(global_invocation_id).{x,y,z}` | `GlobalInvocationId.{x,y,z}` |
+| `"gpuGlobalId"` | u32 | `gpuGlobalIdX` の別名 | 同左 |
+| `"gpuLocalIdX"` / `"gpuLocalIdY"` / `"gpuLocalIdZ"` | u32 | `@builtin(local_invocation_id).{x,y,z}` | `LocalInvocationId.{x,y,z}` |
+| `"gpuLocalId"` | u32 | `gpuLocalIdX` の別名 | 同左 |
+| `"gpuWorkgroupIdX"` / `"gpuWorkgroupIdY"` / `"gpuWorkgroupIdZ"` | u32 | `@builtin(workgroup_id).{x,y,z}` | `WorkgroupId.{x,y,z}` |
+| `"gpuWorkgroupId"` | u32 | `gpuWorkgroupIdX` の別名 | 同左 |
+| `"gpuWorkgroupSize"` | u32 | コンパイル時定数として埋め込み | 同左 |
+
+### G7.2 バリア
+
+| `name` | 戻り型 | WGSL 対応 | SPIR-V 対応 |
+|--------|--------|-----------|-------------|
+| `"gpuBarrier"` | void | `workgroupBarrier()` | `OpControlBarrier(Workgroup, Workgroup, AcquireRelease\|WorkgroupMemory)` |
+| `"gpuStorageBarrier"` | void | `storageBarrier()` | `OpControlBarrier(Workgroup, Workgroup, AcquireRelease\|UniformMemory)` |
+
+### G7.3 アトミック操作
+
+| `name` | 引数 | 戻り型 | WGSL 対応 |
+|--------|------|--------|-----------|
+| `"gpuAtomicAdd"` | `ptr<u32>, u32` | u32 | `atomicAdd()` |
+| `"gpuAtomicSub"` | `ptr<u32>, u32` | u32 | `atomicSub()` |
+| `"gpuAtomicMin"` | `ptr<u32>, u32` | u32 | `atomicMin()` |
+| `"gpuAtomicMax"` | `ptr<u32>, u32` | u32 | `atomicMax()` |
+| `"gpuCompareExchange"` | `ptr<u32>, u32, u32` | `struct:GpuCasResult` | `atomicCompareExchangeWeak()` の結果を `{oldValue, exchanged}` 形に lower |
+| `"gpuAtomicLoad"` | `ptr<u32>` | u32 | `atomicLoad()` |
+| `"gpuAtomicStore"` | `ptr<u32>, u32` | void | `atomicStore()` |
+
+i32 版は名前末尾に `"I32"` を付与する（例: `"gpuAtomicAddI32"`、`"gpuCompareExchangeI32"` の戻り型は `struct:GpuCasResultI32`）。
+
+> CPU 側の `__builtin_atomic_cas32` / `__builtin_atomic_cas64`（成功=1/失敗=0 を `_m32` で返す）と命名を分離している。同概念だが戻り値規約が異なるため、`Cas` という同一名を共有させない（**MUST NOT**）。
+
+### G7.4 数値ユーティリティ
+
+| `name` | 引数 | 戻り型 | WGSL 対応 |
+|--------|------|--------|-----------|
+| `"gpuFma"` | `f32, f32, f32` | f32 | `fma()` |
+| `"gpuDotF32x4"` | `ptr<f32>, ptr<f32>` | f32 | `dot(vec4<f32>, vec4<f32>)` |
+
+---
+
+## G8. ホスト連携
+
+GPU IR ファイルとは別に、CPU 側 IR（`.ast.json`）には以下のノード／組み込みが現れる。
+
+| CPU 側 IR ノード/組み込み | 説明 |
+|------------------------|------|
+| `Intrinsic { name: "__builtin_gpu_dispatch", args: [kernelHandle, argsHandle, gridX, gridY, gridZ] }` | コアライブラリ `gpuDispatch()` の lower 形式 |
+| `Intrinsic { name: "__builtin_gpu_sync" }` | コアライブラリ `gpuSync()` の lower 形式 |
+| `Intrinsic { name: "__builtin_gpu_flush" }` | コアライブラリ `gpuFlush()` の lower 形式 |
+| `Intrinsic { name: "__builtin_gpu_kernel_handle", args: ["vecAdd"] }` | カーネル名から `GpuKernel` の内部ハンドルを取得する（フロントエンドが `GpuKernel` 定数参照箇所に挿入） |
+
+各 GPU バックエンドは `.gpu.json` を実 GPU 形式（`.wgsl` / `.spv` / `.metal` …）に変換し、ランタイム側で `__builtin_gpu_dispatch` 受領時にロード・ディスパッチする。
+
+---
+
+## G9. バージョニング
+
+メジャー番号変更時は IR 構造変更を伴う（後方非互換の可能性あり）。マイナー番号変更時は後方互換を維持する（**MUST**）。コンパイラは `mozaicScriptGpu` フィールドのバージョン文字列を必ず出力すること（**MUST**）。
