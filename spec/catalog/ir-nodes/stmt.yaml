@@ -1,0 +1,86 @@
+# IR ノード（文系）カタログ — IR 仕様§3 / §5 が正本
+
+- id: irnode.IfStmt
+  type: IfStmt
+  category: stmt
+  fields:
+    - { name: type, type: string, required: true }
+    - { name: cond, type: ASTNode, required: true }
+    - { name: body, type: "ASTNode[]", required: true }
+    - { name: else, type: "IfStmt|ElseStmt|null", required: false }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "cond は __builtin_if 脱糖済み"
+
+- id: irnode.ElseStmt
+  type: ElseStmt
+  category: stmt
+  fields:
+    - { name: type, type: string, required: true }
+    - { name: body, type: "ASTNode[]", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+
+- id: irnode.WhileStmt
+  type: WhileStmt
+  category: stmt
+  fields:
+    - { name: type, type: string, required: true }
+    - { name: cond, type: ASTNode, required: true }
+    - { name: body, type: "ASTNode[]", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "cond は __builtin_while 脱糖済み"
+
+- id: irnode.ForStmt
+  type: ForStmt
+  category: stmt
+  fields:
+    - { name: type,   type: string, required: true }
+    - { name: init,   type: ASTNode, required: true }
+    - { name: cond,   type: ASTNode, required: true }
+    - { name: update, type: ASTNode, required: true }
+    - { name: body,   type: "ASTNode[]", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+
+- id: irnode.ReturnStmt
+  type: ReturnStmt
+  category: stmt
+  fields:
+    - { name: type,  type: string, required: true }
+    - { name: value, type: "ASTNode|null", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+
+- id: irnode.BreakStmt
+  type: BreakStmt
+  category: stmt
+  fields:
+    - { name: type, type: string, required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+
+- id: irnode.BlockStmt
+  type: BlockStmt
+  category: stmt
+  fields:
+    - { name: type, type: string, required: true }
+    - { name: body, type: "ASTNode[]", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "engine-spec の ASTNode union には BlockStmt が含まれている"

@@ -1,0 +1,64 @@
+# 数値演算命令（算術・比較）カタログ — 言語仕様§9.1 が正本
+# 二項演算のみ。単項演算 (neg) は unary.yaml にある。
+# 名前パターン: __builtin_<i32|u32|f32|i64|u64|f64>_<op>(a, b) -> _mNN
+# op ∈ { add, sub, mul, div, mod, eq, lt, gt }
+
+# ───────── i32 ─────────
+- { id: builtin.numeric.i32_add, name: __builtin_i32_add, group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "i32 加算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i32_sub, name: __builtin_i32_sub, group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "i32 減算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i32_mul, name: __builtin_i32_mul, group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "i32 乗算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i32_div, name: __builtin_i32_div, group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "i32 除算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i32_mod, name: __builtin_i32_mod, group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "i32 剰余結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i32_eq,  name: __builtin_i32_eq,  group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "等価比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i32_lt,  name: __builtin_i32_lt,  group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "小なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i32_gt,  name: __builtin_i32_gt,  group: numeric.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "大なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+
+# ───────── u32 ─────────
+- { id: builtin.numeric.u32_add, name: __builtin_u32_add, group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "u32 加算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u32_sub, name: __builtin_u32_sub, group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "u32 減算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u32_mul, name: __builtin_u32_mul, group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "u32 乗算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u32_div, name: __builtin_u32_div, group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "u32 除算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u32_mod, name: __builtin_u32_mod, group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "u32 剰余結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u32_eq,  name: __builtin_u32_eq,  group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "等価比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u32_lt,  name: __builtin_u32_lt,  group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "小なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u32_gt,  name: __builtin_u32_gt,  group: numeric.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "大なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+
+# ───────── f32 ─────────
+- { id: builtin.numeric.f32_add, name: __builtin_f32_add, group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "f32 加算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f32_sub, name: __builtin_f32_sub, group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "f32 減算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f32_mul, name: __builtin_f32_mul, group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "f32 乗算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f32_div, name: __builtin_f32_div, group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "f32 除算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f32_mod, name: __builtin_f32_mod, group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "f32 剰余結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f32_eq,  name: __builtin_f32_eq,  group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "等価比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f32_lt,  name: __builtin_f32_lt,  group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "小なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f32_gt,  name: __builtin_f32_gt,  group: numeric.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "大なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+
+# ───────── i64 ─────────
+- { id: builtin.numeric.i64_add, name: __builtin_i64_add, group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "i64 加算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i64_sub, name: __builtin_i64_sub, group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "i64 減算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i64_mul, name: __builtin_i64_mul, group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "i64 乗算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i64_div, name: __builtin_i64_div, group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "i64 除算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i64_mod, name: __builtin_i64_mod, group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "i64 剰余結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i64_eq,  name: __builtin_i64_eq,  group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "等価比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i64_lt,  name: __builtin_i64_lt,  group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "小なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.i64_gt,  name: __builtin_i64_gt,  group: numeric.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "大なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+
+# ───────── u64 ─────────
+- { id: builtin.numeric.u64_add, name: __builtin_u64_add, group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "u64 加算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u64_sub, name: __builtin_u64_sub, group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "u64 減算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u64_mul, name: __builtin_u64_mul, group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "u64 乗算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u64_div, name: __builtin_u64_div, group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "u64 除算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u64_mod, name: __builtin_u64_mod, group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "u64 剰余結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u64_eq,  name: __builtin_u64_eq,  group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "等価比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u64_lt,  name: __builtin_u64_lt,  group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "小なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.u64_gt,  name: __builtin_u64_gt,  group: numeric.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "大なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+
+# ───────── f64 ─────────
+- { id: builtin.numeric.f64_add, name: __builtin_f64_add, group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "f64 加算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f64_sub, name: __builtin_f64_sub, group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "f64 減算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f64_mul, name: __builtin_f64_mul, group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "f64 乗算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f64_div, name: __builtin_f64_div, group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "f64 除算結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f64_mod, name: __builtin_f64_mod, group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "f64 剰余結果",     defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f64_eq,  name: __builtin_f64_eq,  group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "等価比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f64_lt,  name: __builtin_f64_lt,  group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "小なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }
+- { id: builtin.numeric.f64_gt,  name: __builtin_f64_gt,  group: numeric.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "大なり比較 (0 or 1)", defined_in: mozaicScript-spec.md#9.1 }

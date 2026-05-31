@@ -1,0 +1,312 @@
+# 並行プリミティブ命令カタログ
+# 言語仕様§9.11 が正本。IR 仕様§3-脚注/§5 末尾とコアライブラリ §6.2〜§6.6 が参照側。
+# 既知矛盾:
+#   M1: エンジン実装 (interpreter/builtins.ts) は無サフィックス版を登録しており本カタログと不一致 → R1/R2 で検出
+#   M5: CAS の戻り値が CPU 系 (成功=1/失敗=0) と GPU 系 (旧値) で逆方向 → R7 + return_semantics 比較
+
+# ───────── スレッド ─────────
+- id: builtin.thread.spawn
+  name: __builtin_thread_spawn
+  group: concurrency.thread
+  params:
+    - { name: fnName, type: string }
+    - { name: args,   type: "Array<_m32>" }
+  returns: _m64
+  return_semantics: "生成したスレッドのハンドル ID"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: "コアライブラリ§6.2 threadSpawn() は corelib catalog の lowers_to で対応関係を記録"
+
+- id: builtin.thread.join
+  name: __builtin_thread_join
+  group: concurrency.thread
+  params:
+    - { name: id, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+# ───────── スレッドプール ─────────
+- id: builtin.threadpool.create
+  name: __builtin_threadpool_create
+  group: concurrency.threadpool
+  params:
+    - { name: size, type: _m32 }
+  returns: _m64
+  return_semantics: "プールハンドル"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.threadpool.submit
+  name: __builtin_threadpool_submit
+  group: concurrency.threadpool
+  params:
+    - { name: pool,   type: _m64 }
+    - { name: fnName, type: string }
+    - { name: args,   type: "Array<_m32>" }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.threadpool.wait
+  name: __builtin_threadpool_wait
+  group: concurrency.threadpool
+  params:
+    - { name: pool, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.threadpool.destroy
+  name: __builtin_threadpool_destroy
+  group: concurrency.threadpool
+  params:
+    - { name: pool, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+# ───────── ミューテックス ─────────
+- id: builtin.mutex.create
+  name: __builtin_mutex_create
+  group: concurrency.mutex
+  params: []
+  returns: _m64
+  return_semantics: "ミューテックスハンドル"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.mutex.lock
+  name: __builtin_mutex_lock
+  group: concurrency.mutex
+  params:
+    - { name: m, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.mutex.unlock
+  name: __builtin_mutex_unlock
+  group: concurrency.mutex
+  params:
+    - { name: m, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+# ───────── 条件変数 ─────────
+- id: builtin.condvar.create
+  name: __builtin_condvar_create
+  group: concurrency.condvar
+  params: []
+  returns: _m64
+  return_semantics: "条件変数ハンドル"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.condvar.wait
+  name: __builtin_condvar_wait
+  group: concurrency.condvar
+  params:
+    - { name: cv,    type: _m64 }
+    - { name: mutex, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.condvar.signal
+  name: __builtin_condvar_signal
+  group: concurrency.condvar
+  params:
+    - { name: cv, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.condvar.broadcast
+  name: __builtin_condvar_broadcast
+  group: concurrency.condvar
+  params:
+    - { name: cv, type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+# ───────── 32bit アトミック ─────────
+- id: builtin.atomic.load32
+  name: __builtin_atomic_load32
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: order, type: _m32 }
+  returns: _m32
+  return_semantics: "対象アドレスの 32bit 値（アトミックロード）"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.atomic.store32
+  name: __builtin_atomic_store32
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: val,   type: _m32 }
+    - { name: order, type: _m32 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.atomic.cas32
+  name: __builtin_atomic_cas32
+  group: concurrency.atomic
+  params:
+    - { name: ptr,           type: _m32 }
+    - { name: expected,      type: _m32 }
+    - { name: desired,       type: _m32 }
+    - { name: successOrder,  type: _m32 }
+    - { name: failureOrder,  type: _m32 }
+  returns: _m32
+  return_semantics: "成功=1, 失敗=0（CPU 側の規約。GPU 系 gpuAtomicCas は別エントリで旧値を返す。M5）"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: "対応する corelib atomicCas32 は boolean を返す。実装層で 1/0 ↔ boolean を変換する想定"
+
+- id: builtin.atomic.fetch_add32
+  name: __builtin_atomic_fetch_add32
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: val,   type: _m32 }
+    - { name: order, type: _m32 }
+  returns: _m32
+  return_semantics: "加算前の値"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.atomic.fetch_sub32
+  name: __builtin_atomic_fetch_sub32
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: val,   type: _m32 }
+    - { name: order, type: _m32 }
+  returns: _m32
+  return_semantics: "減算前の値"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+# ───────── 64bit アトミック ─────────
+- id: builtin.atomic.load64
+  name: __builtin_atomic_load64
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: order, type: _m32 }
+  returns: _m64
+  return_semantics: "対象アドレスの 64bit 値（アトミックロード）"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.atomic.store64
+  name: __builtin_atomic_store64
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: val,   type: _m64 }
+    - { name: order, type: _m32 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.atomic.cas64
+  name: __builtin_atomic_cas64
+  group: concurrency.atomic
+  params:
+    - { name: ptr,           type: _m32 }
+    - { name: expected,      type: _m64 }
+    - { name: desired,       type: _m64 }
+    - { name: successOrder,  type: _m32 }
+    - { name: failureOrder,  type: _m32 }
+  returns: _m32
+  return_semantics: "成功=1, 失敗=0（CPU 側の規約。M5 参照）"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.atomic.fetch_add64
+  name: __builtin_atomic_fetch_add64
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: val,   type: _m64 }
+    - { name: order, type: _m32 }
+  returns: _m64
+  return_semantics: "加算前の値"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+- id: builtin.atomic.fetch_sub64
+  name: __builtin_atomic_fetch_sub64
+  group: concurrency.atomic
+  params:
+    - { name: ptr,   type: _m32 }
+    - { name: val,   type: _m64 }
+    - { name: order, type: _m32 }
+  returns: _m64
+  return_semantics: "減算前の値"
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: ""
+
+# ───────── フェンス ─────────
+- id: builtin.atomic.fence
+  name: __builtin_atomic_fence
+  group: concurrency.atomic
+  params:
+    - { name: order, type: _m32 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.11
+  referenced_in:
+    - mozaicScript-ir-spec.md#並行プリミティブ
+  notes: "order に Relaxed 相当値を使用してはならない"

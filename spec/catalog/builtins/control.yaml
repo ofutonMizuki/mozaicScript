@@ -1,0 +1,37 @@
+# 制御命令カタログ — 言語仕様§9.3 が正本
+# if/while は evaluator.ts 内で特別処理される（仕様書 §9.3 注記）
+
+- id: builtin.control.if
+  name: __builtin_if
+  group: control.flow
+  params:
+    - { name: cond, type: boolean }
+  returns: _m32
+  return_semantics: "cond の bits フィールドを抽出。0 なら分岐しない、非 0 なら分岐"
+  defined_in: mozaicScript-spec.md#9.3
+  referenced_in:
+    - mozaicScript-ir-spec.md#5
+    - mozaicScript-engine-spec.md#7
+  notes: "evaluator では特別処理される（builtins テーブルには登録されない）"
+
+- id: builtin.control.while
+  name: __builtin_while
+  group: control.flow
+  params:
+    - { name: cond, type: boolean }
+  returns: _m32
+  return_semantics: "cond の bits フィールドを抽出して返す"
+  defined_in: mozaicScript-spec.md#9.3
+  referenced_in:
+    - mozaicScript-ir-spec.md#5
+    - mozaicScript-engine-spec.md#7
+  notes: "evaluator では特別処理される"
+
+- id: builtin.control.panic
+  name: __builtin_panic
+  group: control.panic
+  params:
+    - { name: message, type: string }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.3
+  notes: "アボート命令。コアライブラリ panic() は corelib catalog の lowers_to で対応関係を記録"

@@ -1,0 +1,62 @@
+# コアライブラリ I/O API カタログ — コアライブラリ仕様§5.12 / §5.13 / §6.1 が正本
+
+# ───────── クラス: Stdout (§5.12) ─────────
+- id: corelib.Stdout.write
+  kind: method
+  owner: Stdout
+  signature: "write(s: string): void"
+  defined_in: mozaicScript-corelib-spec.md#5.12
+  lowers_to: builtin.io.stdout_write
+
+- id: corelib.Stdout.writeLine
+  kind: method
+  owner: Stdout
+  signature: "writeLine(s: string): void"
+  defined_in: mozaicScript-corelib-spec.md#5.12
+
+# ───────── クラス: Stderr (§5.12) ─────────
+- id: corelib.Stderr.write
+  kind: method
+  owner: Stderr
+  signature: "write(s: string): void"
+  defined_in: mozaicScript-corelib-spec.md#5.12
+  lowers_to: builtin.io.stderr_write
+
+- id: corelib.Stderr.writeLine
+  kind: method
+  owner: Stderr
+  signature: "writeLine(s: string): void"
+  defined_in: mozaicScript-corelib-spec.md#5.12
+
+# ───────── クラス: Stdin (§5.13) ─────────
+- id: corelib.Stdin.readLine
+  kind: method
+  owner: Stdin
+  signature: "readLine(): string"
+  defined_in: mozaicScript-corelib-spec.md#5.13
+  lowers_to: builtin.io.stdin_readline
+
+# ───────── グローバル関数 (§6.1) ─────────
+- id: corelib.global.print
+  kind: global_fn
+  signature: "print(s: string): void"
+  defined_in: mozaicScript-corelib-spec.md#6.1
+  lowers_to: builtin.io.stdout_write
+
+- id: corelib.global.eprint
+  kind: global_fn
+  signature: "eprint(s: string): void"
+  defined_in: mozaicScript-corelib-spec.md#6.1
+  lowers_to: builtin.io.stderr_write
+
+- id: corelib.global.readLine
+  kind: global_fn
+  signature: "readLine(): string"
+  defined_in: mozaicScript-corelib-spec.md#6.1
+  lowers_to: builtin.io.stdin_readline
+
+- id: corelib.global.panic
+  kind: global_fn
+  signature: "panic(msg: string): void"
+  defined_in: mozaicScript-corelib-spec.md#6.1
+  lowers_to: builtin.control.panic

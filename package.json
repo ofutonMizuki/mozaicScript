@@ -4,10 +4,13 @@
   "description": "mozaicScript interpreter engine v0.1.2",
   "scripts": {
     "start": "ts-node interpreter/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "spec-lint": "ts-node tools/spec-lint/index.ts"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.41",
+    "js-yaml": "^4.1.1",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
   }

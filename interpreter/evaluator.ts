@@ -201,33 +201,10 @@ export class Evaluator {
     }
 
     private evalNewExpr(node: any, env: Environment): RuntimeValue {
-        if (node.elements !== undefined) {
-            const classDef = this.classes.get("Array");
-            if (!classDef) throw new Error("Unknown class: Array (core library not loaded)");
-            const lenClassDef = this.classes.get("u32");
-            if (!lenClassDef) throw new Error("Unknown class: u32 (core library not loaded)");
-
-            const fields: Record<string, RuntimeValue> = Object.create(null);
-            for (const field of classDef.members) fields[field.name] = primitive(0);
-
-            const lenFields: Record<string, RuntimeValue> = Object.create(null);
-            lenFields["bits"] = primitive(node.elements.length);
-            const lenInstance: ObjectValue = {
-                kind: "object", className: "u32", fields: lenFields, classDef: lenClassDef,
-            };
-            fields["length"] = lenInstance;
-
-            if (node.elements.length > 0) {
-                const addr = HeapManager.alloc(node.elements.length * 4);
-                fields["ptr"] = primitive(addr);
-                node.elements.forEach((e: any, i: number) => {
-                    HeapManager.write(addr + i * 4, primitive(e.value));
-                });
-            } else {
-                fields["ptr"] = primitive(0);
-            }
-
-            return { kind: "object", className: node.resolvedType, fields, classDef };
+        // elements フィールドは廃止（IR §6 / corelib §7.2）。
+        // フロントエンドが operator_set[] 展開済みの IR を出力するためここには到達しない。
+        if ((node as any).elements !== undefined) {
+            throw new Error(`evalNewExpr: 廃止された elements フィールドが IR に存在します。コンパイラを再実行してください (M4)`);
         }
 
         const className = node.resolvedType.split("<")[0];

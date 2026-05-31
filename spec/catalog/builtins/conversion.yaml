@@ -1,0 +1,19 @@
+# 型変換命令カタログ — 言語仕様§9.7 が正本
+
+- { id: builtin.conv.i32_to_f32, name: __builtin_i32_to_f32, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m32, return_semantics: "i32 → f32",            defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.i32_to_u32, name: __builtin_i32_to_u32, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m32, return_semantics: "i32 → u32",            defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.u32_to_f32, name: __builtin_u32_to_f32, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m32, return_semantics: "u32 → f32",            defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.u32_to_i32, name: __builtin_u32_to_i32, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m32, return_semantics: "u32 → i32",            defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.f32_to_i32, name: __builtin_f32_to_i32, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m32, return_semantics: "f32 → i32 (切り捨て)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.f32_to_u32, name: __builtin_f32_to_u32, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m32, return_semantics: "f32 → u32 (切り捨て)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.i32_to_i64, name: __builtin_i32_to_i64, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m64, return_semantics: "i32 → i64 (符号拡張)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.u32_to_u64, name: __builtin_u32_to_u64, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m64, return_semantics: "u32 → u64 (ゼロ拡張)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.i64_to_i32, name: __builtin_i64_to_i32, group: conversion.cast, params: [{name: a, type: _m64}], returns: _m32, return_semantics: "i64 → i32 (下位32bit)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.u64_to_u32, name: __builtin_u64_to_u32, group: conversion.cast, params: [{name: a, type: _m64}], returns: _m32, return_semantics: "u64 → u32 (下位32bit)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.f32_to_f64, name: __builtin_f32_to_f64, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m64, return_semantics: "f32 → f64 (精度拡張)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.f64_to_f32, name: __builtin_f64_to_f32, group: conversion.cast, params: [{name: a, type: _m64}], returns: _m32, return_semantics: "f64 → f32 (精度縮小)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.f64_to_i64, name: __builtin_f64_to_i64, group: conversion.cast, params: [{name: a, type: _m64}], returns: _m64, return_semantics: "f64 → i64 (切り捨て)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.i64_to_f64, name: __builtin_i64_to_f64, group: conversion.cast, params: [{name: a, type: _m64}], returns: _m64, return_semantics: "i64 → f64",            defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.u64_to_f64, name: __builtin_u64_to_f64, group: conversion.cast, params: [{name: a, type: _m64}], returns: _m64, return_semantics: "u64 → f64",            defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.i32_to_f64, name: __builtin_i32_to_f64, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m64, return_semantics: "i32 → f64 (符号拡張後)", defined_in: mozaicScript-spec.md#9.7 }
+- { id: builtin.conv.u32_to_f64, name: __builtin_u32_to_f64, group: conversion.cast, params: [{name: a, type: _m32}], returns: _m64, return_semantics: "u32 → f64 (ゼロ拡張後)", defined_in: mozaicScript-spec.md#9.7 }

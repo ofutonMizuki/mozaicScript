@@ -1,17 +1,20 @@
 /node_modules
 /.vscode
-
-/sample
-
-package-lock.json
-
-/.claude
-CLAUDE.md
-
 /dist
+package-lock.json
 
 # 生成された IR（コンパイラ出力。ソースではない）
 *.ast.json
+*.gpu.json
+# 生成された C / JS（codegen / jscodegen の出力。bench/native/ の手書きソースは除く）
+sample/*.c
+sample/*.js
+# 生成されたシェーダソース（wgslcodegen / mslcodegen の出力）
+*.wgsl
+*.metal
+
+# spec-lint の実行結果（再生成される）
+tools/spec-lint/report.json
 
 # ゴールデン期待値（回帰検査の基準。初回実行時に自動生成、ローカルのみ保持）
 bench/golden/

@@ -1,0 +1,101 @@
+# コアライブラリ GPU 拡張 API カタログ — コアライブラリ仕様§8 が正本 (OPTIONAL 拡張)
+
+# ───────── GpuBuffer (§8.1) ─────────
+- id: corelib.GpuBuffer.mapWrite
+  kind: method
+  owner: GpuBuffer
+  signature: "mapWrite<T>(): Ptr<T>"
+  defined_in: mozaicScript-corelib-spec.md#8.1
+
+- id: corelib.GpuBuffer.mapRead
+  kind: method
+  owner: GpuBuffer
+  signature: "mapRead<T>(): Ptr<T>"
+  defined_in: mozaicScript-corelib-spec.md#8.1
+
+- id: corelib.GpuBuffer.unmap
+  kind: method
+  owner: GpuBuffer
+  signature: "unmap(): void"
+  defined_in: mozaicScript-corelib-spec.md#8.1
+
+- id: corelib.GpuBuffer.byteSize
+  kind: method
+  owner: GpuBuffer
+  signature: "byteSize(): u64"
+  defined_in: mozaicScript-corelib-spec.md#8.1
+
+- id: corelib.GpuBuffer.drop
+  kind: method
+  owner: GpuBuffer
+  signature: "drop(): void"
+  defined_in: mozaicScript-corelib-spec.md#8.1
+
+# ───────── GPU グローバル (§8.2) ─────────
+- id: corelib.global.gpuBufferCreate
+  kind: global_fn
+  signature: "gpuBufferCreate(byteSize: u64): GpuBuffer"
+  defined_in: mozaicScript-corelib-spec.md#8.2
+
+- id: corelib.global.gpuIsAvailable
+  kind: global_fn
+  signature: "gpuIsAvailable(): boolean"
+  defined_in: mozaicScript-corelib-spec.md#8.2
+
+# ───────── GpuKernel (§8.3.1) ─────────
+- id: corelib.GpuKernel.name
+  kind: method
+  owner: GpuKernel
+  signature: "name(): string"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+
+- id: corelib.GpuKernel.workgroupSizeX
+  kind: method
+  owner: GpuKernel
+  signature: "workgroupSizeX(): u32"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+
+# ───────── GpuArgs (§8.3.2) ─────────
+- id: corelib.GpuArgs.pushBuffer
+  kind: method
+  owner: GpuArgs
+  signature: "pushBuffer(buf: &GpuBuffer): void"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+
+- id: corelib.GpuArgs.pushBufferMut
+  kind: method
+  owner: GpuArgs
+  signature: "pushBufferMut(buf: &mut GpuBuffer): void"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+
+- id: corelib.GpuArgs.pushU32
+  kind: method
+  owner: GpuArgs
+  signature: "pushU32(v: u32): void"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+
+# ───────── ディスパッチ (§8.3.3) ─────────
+- id: corelib.global.gpuDispatch
+  kind: global_fn
+  signature: "gpuDispatch(kernel: GpuKernel, args: GpuArgs, gridX: u32, gridY: u32, gridZ: u32): void"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+  lowers_to: builtin.gpu.dispatch
+
+- id: corelib.global.gpuDispatch1D
+  kind: global_fn
+  signature: "gpuDispatch1D(kernel: GpuKernel, args: GpuArgs, gridX: u32): void"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+  lowers_to: builtin.gpu.dispatch
+  notes: "gpuDispatch のシンタックスシュガー (gridY=1, gridZ=1)"
+
+- id: corelib.global.gpuSync
+  kind: global_fn
+  signature: "gpuSync(): void"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+  lowers_to: builtin.gpu.sync
+
+- id: corelib.global.gpuFlush
+  kind: global_fn
+  signature: "gpuFlush(): void"
+  defined_in: mozaicScript-corelib-spec.md#8.3
+  lowers_to: builtin.gpu.flush

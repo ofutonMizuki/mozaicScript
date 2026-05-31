@@ -1,0 +1,103 @@
+# コアライブラリ コンテナ API カタログ — コアライブラリ仕様§5.8〜§5.11 が正本
+# 既知矛盾 M6: Ptr<T> の許容 T が複数仕様で異なる (要設計判断)
+
+# ───────── Result<T> (§5.8) ─────────
+- id: corelib.Result.isOk
+  kind: method
+  owner: Result
+  signature: "isOk(): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.8
+
+- id: corelib.Result.isErr
+  kind: method
+  owner: Result
+  signature: "isErr(): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.8
+
+- id: corelib.Result.unwrap
+  kind: method
+  owner: Result
+  signature: "unwrap(): T"
+  defined_in: mozaicScript-corelib-spec.md#5.8
+
+- id: corelib.Result.unwrapErr
+  kind: method
+  owner: Result
+  signature: "unwrapErr(): string"
+  defined_in: mozaicScript-corelib-spec.md#5.8
+
+- id: corelib.Result.ctor
+  kind: constructor
+  owner: Result
+  signature: "new Result<T>(success: boolean, val: T, err: string)"
+  defined_in: mozaicScript-corelib-spec.md#5.8
+
+# ───────── Option<T> (§5.9) ─────────
+- id: corelib.Option.isSome
+  kind: method
+  owner: Option
+  signature: "isSome(): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.9
+
+- id: corelib.Option.isNone
+  kind: method
+  owner: Option
+  signature: "isNone(): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.9
+
+- id: corelib.Option.unwrap
+  kind: method
+  owner: Option
+  signature: "unwrap(): T"
+  defined_in: mozaicScript-corelib-spec.md#5.9
+
+# ───────── Array<T> (§5.10) ─────────
+- id: corelib.Array.length
+  kind: field
+  owner: Array
+  signature: "public let length: u32"
+  defined_in: mozaicScript-corelib-spec.md#5.10
+
+- id: corelib.Array.indexGet
+  kind: method
+  owner: Array
+  signature: "operator[](index: u32): T"
+  defined_in: mozaicScript-corelib-spec.md#5.10
+
+- id: corelib.Array.indexSet
+  kind: method
+  owner: Array
+  signature: "operator_set[](index: u32, value: T): void"
+  defined_in: mozaicScript-corelib-spec.md#5.10
+
+- id: corelib.Array.drop
+  kind: method
+  owner: Array
+  signature: "drop(): void"
+  defined_in: mozaicScript-corelib-spec.md#5.10
+
+- id: corelib.Array.ctor
+  kind: constructor
+  owner: Array
+  signature: "new Array<T>(size: u32)"
+  defined_in: mozaicScript-corelib-spec.md#5.10
+
+# ───────── Ptr<T> (§5.11) — M6 ─────────
+- id: corelib.Ptr.deref
+  kind: method
+  owner: Ptr
+  signature: "deref(): T"
+  defined_in: mozaicScript-corelib-spec.md#5.11
+  notes: "M6 解決 (2026-05-31): T の許容範囲を言語§14.3.1 / GPU IR §4 に揃え、数値型 + plain class へ緩和。CPU 側 Ptr<T> と GPU 側 ptr<T> の型表現を共通化"
+
+- id: corelib.Ptr.write
+  kind: method
+  owner: Ptr
+  signature: "write(val: T): void"
+  defined_in: mozaicScript-corelib-spec.md#5.11
+
+- id: corelib.Ptr.isNull
+  kind: method
+  owner: Ptr
+  signature: "isNull(): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.11

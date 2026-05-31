@@ -1,0 +1,14 @@
+# IR ノード（リテラル系）カタログ — IR 仕様§3 / §5 が正本
+
+- id: irnode.RawLiteral
+  type: RawLiteral
+  category: literal
+  fields:
+    - { name: type,  type: string, required: true }
+    - { name: kind,  type: "\"int\"|\"float\"|\"char\"", required: true }
+    - { name: value, type: number, required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "engine-spec の RawLiteral も同形"

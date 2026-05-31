@@ -32,9 +32,11 @@
 | カテゴリ | ノード種別 |
 |----------|-----------|
 | 宣言 | `ImportDecl`, `ClassDecl`, `FunctionDecl`, `VarDecl`, `TypeAliasDecl` |
-| 式 | `MethodCall`, `NewExpr`, `Identifier`, `Intrinsic`, `Assign`, `MemberAccess` |
+| 式 | `MethodCall`, `NewExpr`, `Identifier`, `Intrinsic`, `Assign`, `MemberAccess`, `BorrowExpr` |
 | 文 | `IfStmt`, `ElseStmt`, `WhileStmt`, `ForStmt`, `ReturnStmt`, `BreakStmt`, `BlockStmt` |
 | リテラル | `RawLiteral` |
+
+`BorrowExpr` および `FunctionDecl.isMut` フィールドは所有権・借用システム拡張で導入された（**MUST**）。詳細仕様は所有権・借用システム拡張追加仕様書§5 を参照。
 
 > スレッド/ミューテックス/条件変数/アトミックなどの並行プリミティブは専用の IR ノードを持たず、コアライブラリ (`.moc`) のクラスメソッド経由で `Intrinsic`（`__builtin_thread_*`, `__builtin_mutex_*`, `__builtin_condvar_*`, `__builtin_atomic_*32/64`, `__builtin_atomic_fence`）として出力される。各バックエンドはこれら `Intrinsic` をネイティブ同期プリミティブに lower する。
 
@@ -123,6 +125,7 @@
     "type": "FunctionDecl",
     "name": "divide",
     "access": "public",
+    "isMut": false,
     "typeParams": [],
     "params": [
         { "name": "a", "resolvedType": "i32" },
@@ -132,6 +135,8 @@
     "body": [...]
 }
 ```
+
+`isMut`（boolean、**MUST**）は所有権・借用システム拡張で導入されたフィールド。`mut` 修飾子が付与されたメソッドおよび関数では `true`、それ以外は `false`。詳細は所有権・借用システム拡張追加仕様書§5.1 を参照。
 
 ### MethodCall（演算子オーバーロード脱糖済み）
 
@@ -338,6 +343,30 @@
 }
 ```
 
+### BorrowExpr
+
+明示的な借用演算子 `&` および `&mut` を表現する式ノード（所有権・借用システム拡張§5.2 で導入）。
+
+```json
+{
+    "type": "BorrowExpr",
+    "isMut": true,
+    "expr": {
+        "type": "Identifier",
+        "name": "a",
+        "resolvedType": "i32"
+    },
+    "resolvedType": "&mut i32"
+}
+```
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `type` | string | 固定値 `"BorrowExpr"` |
+| `isMut` | boolean | `&mut` の場合は `true`、`&` の場合は `false` |
+| `expr` | ASTNode | 借用対象となる式（通常は `Identifier` または `MemberAccess`） |
+| `resolvedType` | string | 単一化・解決済みの完全な参照型名（`"&T"` または `"&mut T"`） |
+
 ### ReturnStmt
 
 ```json
@@ -372,7 +401,9 @@
 - スレッドプール: `__builtin_threadpool_create(size) -> _m64`, `__builtin_threadpool_submit(pool, fnName, args)`, `__builtin_threadpool_wait(pool)`, `__builtin_threadpool_destroy(pool)`
 - ミューテックス: `__builtin_mutex_create() -> _m64`, `__builtin_mutex_lock(id)`, `__builtin_mutex_unlock(id)`
 - 条件変数: `__builtin_condvar_create() -> _m64`, `__builtin_condvar_wait(cv, mutex)`, `__builtin_condvar_signal(cv)`, `__builtin_condvar_broadcast(cv)`
-- アトミック (32/64bit): `__builtin_atomic_load{32,64}(ptr, order)`, `__builtin_atomic_store{32,64}(ptr, val, order)`, `__builtin_atomic_cas{32,64}(ptr, exp, des, successOrder, failureOrder)`, `__builtin_atomic_fetch_add{32,64}(ptr, val, order)`, `__builtin_atomic_fetch_sub{32,64}(ptr, val, order)`, `__builtin_atomic_fence(order)`
+- アトミック (32bit): `__builtin_atomic_load32(ptr, order)`, `__builtin_atomic_store32(ptr, val, order)`, `__builtin_atomic_cas32(ptr, exp, des, successOrder, failureOrder)`, `__builtin_atomic_fetch_add32(ptr, val, order)`, `__builtin_atomic_fetch_sub32(ptr, val, order)`
+- アトミック (64bit): `__builtin_atomic_load64(ptr, order)`, `__builtin_atomic_store64(ptr, val, order)`, `__builtin_atomic_cas64(ptr, exp, des, successOrder, failureOrder)`, `__builtin_atomic_fetch_add64(ptr, val, order)`, `__builtin_atomic_fetch_sub64(ptr, val, order)`
+- フェンス: `__builtin_atomic_fence(order)`
 
 各バックエンドはこれら `Intrinsic` をネイティブの同期プリミティブ（pthread / Atomics / WASM 線形メモリ + シングルスレッド近似など）に lower する。
 
@@ -390,20 +421,60 @@
 
 ## 6. 文字列リテラルの展開
 
-文字列リテラルはフロントエンドが `Array<u32>` のインスタンス化へ展開済みの状態で出力される。
+文字列リテラルはフロントエンドが `Array<u32>` の生成 + `operator_set[]` メソッド呼び出しの連鎖に展開済みの状態で出力される。**正本はコアライブラリ仕様書§7.2** であり、本仕様はその脱糖結果としての JSON ノード列を示すに留まる。`NewExpr` ノードに専用の `elements` フィールドは存在しない（**MUST NOT**）。
 
 ```json
-// "hi" の展開例
-{
-    "type": "NewExpr",
-    "resolvedType": "Array<u32>",
-    "args": [],
-    "elements": [
-        { "type": "RawLiteral", "kind": "char", "value": 104 },
-        { "type": "RawLiteral", "kind": "char", "value": 105 }
-    ]
-}
+// "hi" の展開例（文 BlockStmt 内に 1 個の VarDecl + 2 個の Assign が並ぶ）
+[
+    {
+        "type": "VarDecl",
+        "name": "<tmp>",
+        "resolvedType": "Array<u32>",
+        "value": {
+            "type": "NewExpr",
+            "resolvedType": "Array<u32>",
+            "args": [
+                {
+                    "type": "NewExpr",
+                    "resolvedType": "u32",
+                    "args": [{ "type": "RawLiteral", "kind": "int", "value": 2 }]
+                }
+            ]
+        }
+    },
+    {
+        "type": "Assign",
+        "target": {
+            "type": "MethodCall",
+            "resolvedType": "void",
+            "receiver": { "type": "Identifier", "name": "<tmp>", "resolvedType": "Array<u32>" },
+            "method": "operator_set[]",
+            "args": [
+                { "type": "NewExpr", "resolvedType": "u32", "args": [{ "type": "RawLiteral", "kind": "int", "value": 0 }] },
+                { "type": "NewExpr", "resolvedType": "u32", "args": [{ "type": "RawLiteral", "kind": "char", "value": 104 }] }
+            ]
+        },
+        "value": null
+    },
+    {
+        "type": "Assign",
+        "target": {
+            "type": "MethodCall",
+            "resolvedType": "void",
+            "receiver": { "type": "Identifier", "name": "<tmp>", "resolvedType": "Array<u32>" },
+            "method": "operator_set[]",
+            "args": [
+                { "type": "NewExpr", "resolvedType": "u32", "args": [{ "type": "RawLiteral", "kind": "int", "value": 1 }] },
+                { "type": "NewExpr", "resolvedType": "u32", "args": [{ "type": "RawLiteral", "kind": "char", "value": 105 }] }
+            ]
+        },
+        "value": null
+    }
+]
 ```
+
+- 旧仕様の `NewExpr.elements` フィールドは廃止（**MUST NOT**）。バックエンドは `elements` を読まないこと。
+- 文字列リテラル展開以外の通常の `Array<T>` インスタンス化と完全に同じ AST 形になる。
 
 ---
 

@@ -1,0 +1,95 @@
+# IR ノード（式系）カタログ — IR 仕様§3 / §5 が正本
+
+- id: irnode.MethodCall
+  type: MethodCall
+  category: expr
+  fields:
+    - { name: type,         type: string,    required: true }
+    - { name: resolvedType, type: string,    required: true }
+    - { name: receiver,     type: ASTNode,   required: true }
+    - { name: method,       type: string,    required: true }
+    - { name: args,         type: "ASTNode[]", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "演算子オーバーロード脱糖済み"
+
+- id: irnode.NewExpr
+  type: NewExpr
+  category: expr
+  fields:
+    - { name: type,         type: string,       required: true }
+    - { name: resolvedType, type: string,       required: true }
+    - { name: args,         type: "ASTNode[]",  required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "M4 解決: 文字列リテラル展開は operator_set[] 連鎖形 (コアライブラリ§7.2 が正本、IR§6 はその脱糖結果としての JSON ノード列を示す)。専用 elements フィールドは廃止"
+
+- id: irnode.Identifier
+  type: Identifier
+  category: expr
+  fields:
+    - { name: type,         type: string, required: true }
+    - { name: name,         type: string, required: true }
+    - { name: resolvedType, type: string, required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+
+- id: irnode.Intrinsic
+  type: Intrinsic
+  category: expr
+  fields:
+    - { name: type,         type: string,      required: true }
+    - { name: name,         type: string,      required: true }
+    - { name: resolvedType, type: string,      required: true }
+    - { name: args,         type: "ASTNode[]", required: true }
+    - { name: targetType,   type: string,      required: false }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "targetType は __builtin_sizeof のときのみ"
+
+- id: irnode.Assign
+  type: Assign
+  category: expr
+  fields:
+    - { name: type,   type: string,  required: true }
+    - { name: target, type: ASTNode, required: true }
+    - { name: value,  type: ASTNode, required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+
+- id: irnode.MemberAccess
+  type: MemberAccess
+  category: expr
+  fields:
+    - { name: type,         type: string,  required: true }
+    - { name: resolvedType, type: string,  required: true }
+    - { name: receiver,     type: ASTNode, required: true }
+    - { name: member,       type: string,  required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+
+- id: irnode.BorrowExpr
+  type: BorrowExpr
+  category: expr
+  fields:
+    - { name: type,         type: string,  required: true }
+    - { name: isMut,        type: boolean, required: true }
+    - { name: expr,         type: ASTNode, required: true }
+    - { name: resolvedType, type: string,  required: true }
+  defined_in: mozaicScript-ownership-spec.md#5.2
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-ir-spec.md#1
+  notes: "所有権拡張で新規追加 (M3)。IR §3 のノード一覧表に未収録、§5 のノード定義にも未収録。IR §1 の注記で参照を示すのみ"

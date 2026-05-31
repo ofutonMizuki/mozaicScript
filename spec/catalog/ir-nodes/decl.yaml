@@ -1,0 +1,91 @@
+# IR ノード（宣言系）カタログ — IR 仕様§3 / §5 が正本
+# 既知矛盾 M3: BorrowExpr / FunctionDecl.isMut が IR §3 ノード一覧に未収録
+
+- id: irnode.ImportDecl
+  type: ImportDecl
+  category: decl
+  fields:
+    - { name: type,      type: string,         required: true }
+    - { name: path,      type: string,         required: true }
+    - { name: namespace, type: "string|null", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: ""
+
+- id: irnode.TypeAliasDecl
+  type: TypeAliasDecl
+  category: decl
+  fields:
+    - { name: type,         type: string, required: true }
+    - { name: name,         type: string, required: true }
+    - { name: resolvedType, type: string, required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: ""
+
+- id: irnode.ClassDecl
+  type: ClassDecl
+  category: decl
+  fields:
+    - { name: type,       type: string,         required: true }
+    - { name: name,       type: string,         required: true }
+    - { name: access,     type: AccessModifier, required: true }
+    - { name: typeParams, type: "string[]",     required: true }
+    - { name: members,    type: "FieldDecl[]",  required: true }
+    - { name: methods,    type: "FunctionDecl[]", required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: ""
+
+- id: irnode.FunctionDecl
+  type: FunctionDecl
+  category: decl
+  fields:
+    - { name: type,        type: string,         required: true }
+    - { name: name,        type: string,         required: true }
+    - { name: access,      type: AccessModifier, required: true }
+    - { name: typeParams,  type: "string[]",     required: true }
+    - { name: params,      type: "{name:string,resolvedType:string}[]", required: true }
+    - { name: returnType,  type: string,         required: true }
+    - { name: body,        type: "ASTNode[]",    required: true }
+    - { name: isMut,       type: boolean,        required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-ownership-spec.md#5.1
+    - mozaicScript-engine-spec.md#3
+  notes: "isMut は所有権拡張で追加 (M3)。IR §5 の例には未掲載で、所有権§5.1 のみが正本"
+
+- id: irnode.VarDecl
+  type: VarDecl
+  category: decl
+  fields:
+    - { name: type,         type: string,  required: true }
+    - { name: name,         type: string,  required: true }
+    - { name: resolvedType, type: string,  required: true }
+    - { name: value,        type: ASTNode, required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: true
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "const と let の区別は IR には存在しない"
+
+- id: irnode.FieldDecl
+  type: FieldDecl
+  category: decl
+  fields:
+    - { name: type,         type: string,         required: true }
+    - { name: name,         type: string,         required: true }
+    - { name: access,       type: AccessModifier, required: true }
+    - { name: resolvedType, type: string,         required: true }
+  defined_in: mozaicScript-ir-spec.md#5
+  must_appear_in_ir_node_list: false
+  referenced_in:
+    - mozaicScript-engine-spec.md#3
+  notes: "ClassDecl.members 内のみ。トップレベルのノード一覧には不要"

@@ -1,0 +1,163 @@
+// ============================================================
+//  geometry.moz — ユーザーモジュール（.moz ファイル）
+//
+//  所有権・借用システム対応版 (doc/mozaicScript-ownership-spec.md):
+//   - 多フィールド参照型 (Vec2) のオペランドは `&` で借用する
+//   - 自身を変更するメソッドは `mut` 修飾子を付与する
+// ============================================================
+
+import "./core.moc" as *;
+
+
+// ============================================================
+//  § 4.5  型エイリアス / § 4.6  型同一性
+// ============================================================
+type Scalar = f32;
+
+
+// ============================================================
+//  Vec2 — 2 次元浮動小数点ベクトル
+// ============================================================
+public class Vec2 {
+    public let x: f32;
+    public let y: f32;
+
+    public constructor(xVal: f32, yVal: f32) {
+        this.x = xVal;
+        this.y = yVal;
+    }
+
+    public operator+(other: &Vec2): Vec2 {
+        return new Vec2(this.x + other.x, this.y + other.y);
+    }
+
+    public operator-(other: &Vec2): Vec2 {
+        return new Vec2(this.x - other.x, this.y - other.y);
+    }
+
+    // スカラー乗算（ラッパー型はそのまま渡せる）
+    public operator*(scalar: Scalar): Vec2 {
+        return new Vec2(this.x * scalar, this.y * scalar);
+    }
+
+    public operator==(other: &Vec2): boolean {
+        return this.x == other.x && this.y == other.y;
+    }
+
+    public operator<(other: &Vec2): boolean {
+        return this.lengthSq() < other.lengthSq();
+    }
+
+    public operator>(other: &Vec2): boolean {
+        return this.lengthSq() > other.lengthSq();
+    }
+
+    public dot(other: &Vec2): f32 {
+        return this.x * other.x + this.y * other.y;
+    }
+
+    public lengthSq(): f32 {
+        return this.x * this.x + this.y * this.y;
+    }
+
+    public length(): f32 {
+        return this.lengthSq().sqrt();
+    }
+
+    public negate(): Vec2 {
+        return new Vec2(this.x.negate(), this.y.negate());
+    }
+
+    public normalize(): Vec2 {
+        const len: f32 = this.length();
+        return new Vec2(this.x / len, this.y / len);
+    }
+
+    // 自身を変更するスケーリング (mut メソッド)
+    public mut scale(s: f32): void {
+        this.x = this.x * s;
+        this.y = this.y * s;
+    }
+}
+
+
+// ============================================================
+//  § 4.7  ジェネリクス関数 (プリミティブラッパー専用版)
+// ============================================================
+
+public function max<T>(a: T, b: T): T {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+public function min<T>(a: T, b: T): T {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
+
+public function clamp<T>(val: T, lo: T, hi: T): T {
+    if (val < lo) {
+        return lo;
+    }
+    if (val > hi) {
+        return hi;
+    }
+    return val;
+}
+
+
+// ============================================================
+//  § 8  エラーハンドリング — Result<T>
+// ============================================================
+
+public function safeDivide(a: i32, b: i32): Result<i32> {
+    if (b == new i32(0)) {
+        return new Result<i32>(new boolean(0), new i32(0), "division by zero");
+    }
+    return new Result<i32>(new boolean(1), a / b, "");
+}
+
+public function safeSqrt(x: f32): Result<f32> {
+    if (x < new f32(0.0)) {
+        return new Result<f32>(new boolean(0), new f32(0.0), "sqrt of negative number");
+    }
+    return new Result<f32>(new boolean(1), x.sqrt(), "");
+}
+
+
+// ============================================================
+//  § 8  エラーハンドリング — Option<T>
+// ============================================================
+
+public function findFirst(arr: &Array<i32>, target: i32): Option<i32> {
+    let i: u32 = new u32(0);
+    while (i < arr.length) {
+        if (arr[i] == target) {
+            return new Option<i32>(new boolean(1), i.toI32());
+        }
+        i = i + new u32(1);
+    }
+    return new Option<i32>(new boolean(0), new i32(-1));
+}
+
+// 配列から最大長さの Vec2 を返す (配列要素は読み取り専用借用)
+public function findLongest(arr: &Array<Vec2>, size: u32): Option<Vec2> {
+    if (size == new u32(0)) {
+        return new Option<Vec2>(new boolean(0), new Vec2(new f32(0.0), new f32(0.0)));
+    }
+    // ※ Array<Vec2> の operator[] は T (Vec2) を返す = 値コピー (現状仕様)
+    let best: Vec2 = arr[new u32(0)];
+    let i: u32 = new u32(1);
+    while (i < size) {
+        const current: Vec2 = arr[i];
+        if (current > &best) {
+            best = current;
+        }
+        i = i + new u32(1);
+    }
+    return new Option<Vec2>(new boolean(1), best);
+}

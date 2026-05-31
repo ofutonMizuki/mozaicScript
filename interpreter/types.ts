@@ -90,7 +90,8 @@ export interface NewExpr {
     type: "NewExpr";
     resolvedType: string;
     args: ASTNode[];
-    elements?: RawLiteral[];
+    // elements フィールドは廃止（IR §6 / corelib §7.2）。
+    // フロントエンドが operator_set[] 連鎖展開済みで出力するためバックエンドは参照しない。
 }
 
 export interface Assign {

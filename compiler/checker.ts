@@ -203,7 +203,7 @@ const GPU_BUILTINS: Record<string, GpuBuiltinSig> = {
     gpuAtomicSub:       { intrinsic: '__builtin_gpu_atomic_sub_u32',   returnType: 'u32', paramTypes: ['Ptr<u32>', 'u32'] },
     gpuAtomicMin:       { intrinsic: '__builtin_gpu_atomic_min_u32',   returnType: 'u32', paramTypes: ['Ptr<u32>', 'u32'] },
     gpuAtomicMax:       { intrinsic: '__builtin_gpu_atomic_max_u32',   returnType: 'u32', paramTypes: ['Ptr<u32>', 'u32'] },
-    gpuAtomicCas:       { intrinsic: '__builtin_gpu_atomic_cas_u32',   returnType: 'u32', paramTypes: ['Ptr<u32>', 'u32', 'u32'] },
+    gpuCompareExchange: { intrinsic: '__builtin_gpu_atomic_cas_u32',   returnType: 'u32', paramTypes: ['Ptr<u32>', 'u32', 'u32'] },
     gpuAtomicLoad:      { intrinsic: '__builtin_gpu_atomic_load_u32',  returnType: 'u32', paramTypes: ['Ptr<u32>'] },
     gpuAtomicStore:     { intrinsic: '__builtin_gpu_atomic_store_u32', returnType: 'void', paramTypes: ['Ptr<u32>', 'u32'] },
     // §14.4.3 アトミック (i32)
@@ -211,7 +211,7 @@ const GPU_BUILTINS: Record<string, GpuBuiltinSig> = {
     gpuAtomicSubI32:    { intrinsic: '__builtin_gpu_atomic_sub_i32',   returnType: 'i32', paramTypes: ['Ptr<i32>', 'i32'] },
     gpuAtomicMinI32:    { intrinsic: '__builtin_gpu_atomic_min_i32',   returnType: 'i32', paramTypes: ['Ptr<i32>', 'i32'] },
     gpuAtomicMaxI32:    { intrinsic: '__builtin_gpu_atomic_max_i32',   returnType: 'i32', paramTypes: ['Ptr<i32>', 'i32'] },
-    gpuAtomicCasI32:    { intrinsic: '__builtin_gpu_atomic_cas_i32',   returnType: 'i32', paramTypes: ['Ptr<i32>', 'i32', 'i32'] },
+    gpuCompareExchangeI32: { intrinsic: '__builtin_gpu_atomic_cas_i32', returnType: 'i32', paramTypes: ['Ptr<i32>', 'i32', 'i32'] },
     gpuAtomicLoadI32:   { intrinsic: '__builtin_gpu_atomic_load_i32',  returnType: 'i32', paramTypes: ['Ptr<i32>'] },
     gpuAtomicStoreI32:  { intrinsic: '__builtin_gpu_atomic_store_i32', returnType: 'void', paramTypes: ['Ptr<i32>', 'i32'] },
     // §14.4.4 数値ユーティリティ
@@ -318,6 +318,13 @@ interface CheckCtx {
 
 export class Checker {
     constructor(private reg: Registry) {}
+
+    private tmpCounter = 0;
+    private freshTmp(): string { return `__str_${this.tmpCounter++}`; }
+
+    private makeU32Lit(n: number): IR.NewExpr {
+        return { type: 'NewExpr', resolvedType: 'u32', args: [{ type: 'RawLiteral', kind: 'int', value: n }] };
+    }
 
     // §6.6: this を引数として渡すことを禁止する（所有権システム導入で借用チェッカーへ委譲）
     private rejectThisArgs(_args: A.PExpr[]): void {
@@ -628,9 +635,7 @@ export class Checker {
                         }
                     }
                     for (const a of n.args) walk(a);
-                    if (n.elements) {
-                        throw new CheckError(`gpu 関数 '${kernelName}' 内で文字列リテラルは使用できません (§14.3.1)`, pos);
-                    }
+                    // elements は廃止済み。strlit は preStmts 経由で展開される前にチェックされる。
                     break;
                 }
                 case 'MethodCall':
@@ -766,55 +771,55 @@ export class Checker {
         const nodes: IR.ASTNode[] = [];
         const scopedCtx: CheckCtx = { ...ctx, locals: new Map(ctx.locals) };
         for (const stmt of stmts) {
-            nodes.push(this.checkStmt(stmt, scopedCtx));
+            const pre: IR.ASTNode[] = [];
+            const node = this.checkStmt(stmt, scopedCtx, pre);
+            nodes.push(...pre, node);
         }
         return nodes;
     }
 
     // ── 文 ────────────────────────────────────────────────────────────────────
 
-    private checkStmt(stmt: A.PStmt, ctx: CheckCtx): IR.ASTNode {
+    private checkStmt(stmt: A.PStmt, ctx: CheckCtx, pre: IR.ASTNode[] = []): IR.ASTNode {
         switch (stmt.kind) {
             case 'vardecl': {
                 if (ctx.locals.has(stmt.name)) {
                     throw new CheckError(`'${stmt.name}' はシャドーイングできません`, stmt.pos);
                 }
                 const rt = this.resolveType(stmt.type, ctx.isMoc);
-                const value = this.checkExpr(stmt.value, ctx);
+                const value = this.checkExpr(stmt.value, ctx, pre);
                 ctx.locals.set(stmt.name, { type: rt, mut: stmt.mut });
                 return { type: 'VarDecl', name: stmt.name, resolvedType: rt, value };
             }
 
             case 'assign': {
-                // const への再代入チェック
                 if (stmt.target.kind === 'ident') {
                     const local = ctx.locals.get(stmt.target.name);
                     if (local && !local.mut) {
                         throw new CheckError(`const '${stmt.target.name}' には代入できません`, stmt.pos);
                     }
                 }
-                // a[i] = v → operator_set[]
                 if (stmt.target.kind === 'index') {
-                    const obj = this.checkExpr((stmt.target as A.PIndexExpr).obj, ctx);
-                    const idx = this.checkExpr((stmt.target as A.PIndexExpr).index, ctx);
-                    const val = this.checkExpr(stmt.value, ctx);
+                    const obj = this.checkExpr((stmt.target as A.PIndexExpr).obj, ctx, pre);
+                    const idx = this.checkExpr((stmt.target as A.PIndexExpr).index, ctx, pre);
+                    const val = this.checkExpr(stmt.value, ctx, pre);
                     return this.makeCall(obj, 'operator_set[]', [idx, val], resolvedType(obj));
                 }
-                return { type: 'Assign', target: this.checkExpr(stmt.target, ctx), value: this.checkExpr(stmt.value, ctx) };
+                return { type: 'Assign', target: this.checkExpr(stmt.target, ctx, pre), value: this.checkExpr(stmt.value, ctx, pre) };
             }
 
             case 'exprstmt':
-                return this.checkExpr(stmt.expr, ctx);
+                return this.checkExpr(stmt.expr, ctx, pre);
 
             case 'if': {
                 const cond: IR.Intrinsic = {
                     type: 'Intrinsic', name: '__builtin_if', resolvedType: '_m32',
-                    args: [this.checkExpr(stmt.cond, ctx)],
+                    args: [this.checkExpr(stmt.cond, ctx, pre)],
                 };
                 const body = this.checkBody(stmt.body, ctx);
                 let elseNode: IR.IfStmt | IR.ElseStmt | null = null;
                 if (stmt.elseIf) {
-                    elseNode = this.checkStmt(stmt.elseIf, ctx) as IR.IfStmt;
+                    elseNode = this.checkStmt(stmt.elseIf, ctx, pre) as IR.IfStmt;
                 } else if (stmt.elseBody) {
                     elseNode = { type: 'ElseStmt', body: this.checkBody(stmt.elseBody, ctx) };
                 }
@@ -824,7 +829,7 @@ export class Checker {
             case 'while': {
                 const cond: IR.Intrinsic = {
                     type: 'Intrinsic', name: '__builtin_while', resolvedType: '_m32',
-                    args: [this.checkExpr(stmt.cond, ctx)],
+                    args: [this.checkExpr(stmt.cond, ctx, pre)],
                 };
                 return { type: 'WhileStmt', cond, body: this.checkBody(stmt.body, ctx) };
             }
@@ -833,29 +838,29 @@ export class Checker {
                 const forCtx: CheckCtx = { ...ctx, locals: new Map(ctx.locals) };
 
                 const initRt = this.resolveType(stmt.init.type, ctx.isMoc);
-                const initValue = this.checkExpr(stmt.init.value, forCtx);
+                const initValue = this.checkExpr(stmt.init.value, forCtx, pre);
                 const init: IR.VarDecl = { type: 'VarDecl', name: stmt.init.name, resolvedType: initRt, value: initValue };
                 forCtx.locals.set(stmt.init.name, { type: initRt, mut: stmt.init.mut });
 
                 const cond: IR.Intrinsic = {
                     type: 'Intrinsic', name: '__builtin_if', resolvedType: '_m32',
-                    args: [this.checkExpr(stmt.cond, forCtx)],
+                    args: [this.checkExpr(stmt.cond, forCtx, pre)],
                 };
 
                 let update: IR.ASTNode;
                 if (stmt.update.kind === 'assign') {
                     const upd = stmt.update as A.PAssignStmt;
                     if (upd.target.kind === 'index') {
-                        const obj = this.checkExpr((upd.target as A.PIndexExpr).obj, forCtx);
-                        const idx = this.checkExpr((upd.target as A.PIndexExpr).index, forCtx);
-                        const val = this.checkExpr(upd.value, forCtx);
+                        const obj = this.checkExpr((upd.target as A.PIndexExpr).obj, forCtx, pre);
+                        const idx = this.checkExpr((upd.target as A.PIndexExpr).index, forCtx, pre);
+                        const val = this.checkExpr(upd.value, forCtx, pre);
                         const objType = resolvedType(obj);
                         update = this.makeCall(obj, 'operator_set[]', [idx, val], objType);
                     } else {
-                        update = { type: 'Assign', target: this.checkExpr(upd.target, forCtx), value: this.checkExpr(upd.value, forCtx) };
+                        update = { type: 'Assign', target: this.checkExpr(upd.target, forCtx, pre), value: this.checkExpr(upd.value, forCtx, pre) };
                     }
                 } else {
-                    update = this.checkExpr((stmt.update as A.PExprStmt).expr, forCtx);
+                    update = this.checkExpr((stmt.update as A.PExprStmt).expr, forCtx, pre);
                 }
 
                 return { type: 'ForStmt', init, cond, update, body: this.checkBody(stmt.body, forCtx) };
@@ -863,7 +868,7 @@ export class Checker {
 
             case 'return': {
                 if (stmt.value === null) return { type: 'ReturnStmt', value: null };
-                return { type: 'ReturnStmt', value: this.checkExpr(stmt.value, ctx) };
+                return { type: 'ReturnStmt', value: this.checkExpr(stmt.value, ctx, pre) };
             }
 
             case 'break':
@@ -876,7 +881,7 @@ export class Checker {
 
     // ── 式 ────────────────────────────────────────────────────────────────────
 
-    private checkExpr(expr: A.PExpr, ctx: CheckCtx): IR.ASTNode {
+    private checkExpr(expr: A.PExpr, ctx: CheckCtx, pre: IR.ASTNode[] = []): IR.ASTNode {
         switch (expr.kind) {
 
             case 'ident': {
@@ -916,25 +921,39 @@ export class Checker {
             }
 
             case 'strlit': {
-                // 文字列リテラル → Array<u32> with elements
-                const elements: IR.RawLiteral[] = [];
-                for (let i = 0; i < expr.value.length; i++) {
-                    elements.push({ type: 'RawLiteral', kind: 'char', value: expr.value.charCodeAt(i) });
+                // 文字列リテラル → new Array<u32>(n) + operator_set[] 連鎖 (IR §6 / corelib §7.2)
+                const tmp = this.freshTmp();
+                const n = expr.value.length;
+                // VarDecl: let __str_N: Array<u32> = new Array<u32>(new u32(n))
+                const arrInit: IR.NewExpr = { type: 'NewExpr', resolvedType: 'Array<u32>', args: [this.makeU32Lit(n)] };
+                pre.push({ type: 'VarDecl', name: tmp, resolvedType: 'Array<u32>', value: arrInit });
+                ctx.locals.set(tmp, { type: 'Array<u32>', mut: true });
+                // operator_set[] 呼び出し列
+                for (let i = 0; i < n; i++) {
+                    const setCall: IR.MethodCall = {
+                        type: 'MethodCall', resolvedType: 'void',
+                        receiver: { type: 'Identifier', name: tmp, resolvedType: 'Array<u32>' },
+                        method: 'operator_set[]',
+                        args: [
+                            this.makeU32Lit(i),
+                            { type: 'NewExpr', resolvedType: 'u32', args: [{ type: 'RawLiteral', kind: 'char', value: expr.value.charCodeAt(i) }] },
+                        ],
+                    };
+                    pre.push(setCall);
                 }
-                return { type: 'NewExpr', resolvedType: 'Array<u32>', args: [], elements };
+                return { type: 'Identifier', name: tmp, resolvedType: 'Array<u32>' };
             }
 
             case 'new': {
                 const rt = this.resolveType(expr.type, ctx.isMoc);
                 this.rejectThisArgs(expr.args);
-                // コンストラクタ引数内ではリテラル許可
                 const litCtx: CheckCtx = { ...ctx, inLitCtx: true };
-                const args = expr.args.map(a => this.checkExpr(a, litCtx));
+                const args = expr.args.map(a => this.checkExpr(a, litCtx, pre));
                 return { type: 'NewExpr', resolvedType: rt, args };
             }
 
             case 'borrow': {
-                const operand = this.checkExpr(expr.expr, ctx);
+                const operand = this.checkExpr(expr.expr, ctx, pre);
                 const rt = resolvedType(operand);
                 const prefix = expr.isMut ? '&mut ' : '&';
                 return {
@@ -946,7 +965,7 @@ export class Checker {
             }
 
             case 'unary': {
-                const operand = this.checkExpr(expr.expr, ctx);
+                const operand = this.checkExpr(expr.expr, ctx, pre);
                 const recvType = resolvedType(operand);
                 if (expr.op === '!') {
                     return this.makeCall(operand, 'operatorNot', [], recvType);
@@ -972,10 +991,10 @@ export class Checker {
                 // <= と >= は脱糖
                 if (expr.op === '<=' || expr.op === '>=') {
                     const cmpOp = expr.op === '<=' ? 'operator<' : 'operator>';
-                    const l1 = this.checkExpr(expr.left, ctx);
-                    const r1 = this.checkExpr(expr.right, ctx);
-                    const l2 = this.checkExpr(expr.left, ctx);
-                    const r2 = this.checkExpr(expr.right, ctx);
+                    const l1 = this.checkExpr(expr.left, ctx, pre);
+                    const r1 = this.checkExpr(expr.right, ctx, pre);
+                    const l2 = this.checkExpr(expr.left, ctx, pre);
+                    const r2 = this.checkExpr(expr.right, ctx, pre);
                     const lt = resolvedType(l1);
                     const cmpNode = this.makeCall(l1, cmpOp, [r1], lt);
                     const eqNode  = this.makeCall(l2, 'operator==', [r2], lt);
@@ -983,8 +1002,8 @@ export class Checker {
                 }
                 // != は脱糖
                 if (expr.op === '!=') {
-                    const l = this.checkExpr(expr.left, ctx);
-                    const r = this.checkExpr(expr.right, ctx);
+                    const l = this.checkExpr(expr.left, ctx, pre);
+                    const r = this.checkExpr(expr.right, ctx, pre);
                     const eq = this.makeCall(l, 'operator==', [r], resolvedType(l));
                     return this.makeCall(eq, 'operatorNot', [], resolvedType(eq));
                 }
@@ -996,8 +1015,8 @@ export class Checker {
                 };
                 const method = OP_MAP[expr.op];
                 if (!method) throw new CheckError(`未知の二項演算子 '${expr.op}'`, expr.pos);
-                const left  = this.checkExpr(expr.left, ctx);
-                const right = this.checkExpr(expr.right, ctx);
+                const left  = this.checkExpr(expr.left, ctx, pre);
+                const right = this.checkExpr(expr.right, ctx, pre);
                 return this.makeCall(left, method, [right], resolvedType(left));
             }
 
@@ -1009,7 +1028,7 @@ export class Checker {
                     }
                     const rt = BUILTIN_RET[expr.name] ?? '_m32';
                     this.rejectThisArgs(expr.args);
-                    const args = expr.args.map(a => this.checkExpr(a, ctx));
+                    const args = expr.args.map(a => this.checkExpr(a, ctx, pre));
                     const node: IR.Intrinsic = { type: 'Intrinsic', name: expr.name, resolvedType: rt, args };
                     if (expr.name === '__builtin_sizeof' && expr.typeArgs.length > 0) {
                         node.targetType = this.resolveType(expr.typeArgs[0], ctx.isMoc);
@@ -1025,7 +1044,12 @@ export class Checker {
                     return this.makeGpuBuiltinCall(gpuSig, expr.args, ctx);
                 }
                 // トップレベル関数呼び出し
-                const fn = this.reg.funcEnv.get(expr.name);
+                let fn = this.reg.funcEnv.get(expr.name);
+                // gpu 関数内から自分自身や他の gpu 関数を呼ぼうとした場合は
+                // 内部名 (__gpu_kernel_*) で検索する。globalEnv 経由のエラー判定の前に行う。
+                if (!fn && ctx.inGpuFunc) {
+                    fn = this.reg.funcEnv.get(`__gpu_kernel_${expr.name}`);
+                }
                 if (!fn) {
                     // ユーザの gpu カーネル名は globalEnv に GpuKernel として登録される。
                     // 直接呼び出し (vecAdd(...)) は §14.3.2 / §14.2 違反
@@ -1039,14 +1063,21 @@ export class Checker {
                 if (ctx.inGpuFunc && !fn.isGpu) {
                     throw new CheckError(`gpu 関数内から非 gpu 関数 '${expr.name}' を呼び出せません (§14.3.2)`, expr.pos);
                 }
+                // §14.3.2 / GPU IR §6.7: gpu 関数間呼び出しはフロントエンドがインライン展開する MUST。
+                // 本実装ではインライン展開未対応なので gpu→gpu 呼び出しを拒否する (再帰禁止も併せて満たす)。
+                if (ctx.inGpuFunc && fn.isGpu) {
+                    if (`__gpu_kernel_${ctx.inGpuFunc.name}` === fn.name) {
+                        throw new CheckError(`gpu 関数 '${ctx.inGpuFunc.name}' の再帰呼び出しは禁止です (§14.3.2)`, expr.pos);
+                    }
+                    throw new CheckError(`gpu 関数間呼び出し ('${expr.name}') は現バージョンでは未対応です (§14.3.2 + GPU IR §6.7 が MUST とするフロントエンドインライン展開が本実装には未実装)`, expr.pos);
+                }
                 const subst = new Map<string, string>();
                 fn.typeParams.forEach((tp, i) => {
                     if (expr.typeArgs[i]) subst.set(tp, this.resolveType(expr.typeArgs[i], ctx.isMoc));
                 });
                 const rt = applySubst(fn.returnType, subst);
                 this.rejectThisArgs(expr.args);
-                const args = expr.args.map(a => this.checkExpr(a, ctx));
-                // 関数呼び出しを MethodCall としてエンコード（receiver は識別子）
+                const args = expr.args.map(a => this.checkExpr(a, ctx, pre));
                 return {
                     type: 'MethodCall', resolvedType: rt,
                     receiver: { type: 'Identifier', name: expr.name, resolvedType: rt },
@@ -1055,9 +1086,7 @@ export class Checker {
             }
 
             case 'methodcall': {
-                // 名前空間付き関数呼び出し: Geo.max<i32>(...)
                 if (expr.obj.kind === 'ident' && this.reg.namespaces.has(expr.obj.name)) {
-                    // §14.4 GPU builtin の名前空間付き呼び出し: GPU.gpuGlobalId() 等も許可
                     const gpuSig = GPU_BUILTINS[expr.method];
                     if (gpuSig) {
                         if (!ctx.inGpuFunc) {
@@ -1073,13 +1102,19 @@ export class Checker {
                         }
                         throw new CheckError(`未知の関数 '${expr.obj.name}.${expr.method}'`, expr.pos);
                     }
+                    if (ctx.inGpuFunc && !fn.isGpu) {
+                        throw new CheckError(`gpu 関数内から非 gpu 関数 '${expr.obj.name}.${expr.method}' を呼び出せません (§14.3.2)`, expr.pos);
+                    }
+                    if (ctx.inGpuFunc && fn.isGpu) {
+                        throw new CheckError(`gpu 関数間呼び出し ('${expr.obj.name}.${expr.method}') は現バージョンでは未対応です (§14.3.2 + GPU IR §6.7)`, expr.pos);
+                    }
                     const subst = new Map<string, string>();
                     fn.typeParams.forEach((tp, i) => {
                         if (expr.typeArgs[i]) subst.set(tp, this.resolveType(expr.typeArgs[i], ctx.isMoc));
                     });
                     const rt = applySubst(fn.returnType, subst);
                     this.rejectThisArgs(expr.args);
-                    const args = expr.args.map(a => this.checkExpr(a, ctx));
+                    const args = expr.args.map(a => this.checkExpr(a, ctx, pre));
                     const qualifiedName = `${expr.obj.name}.${expr.method}`;
                     return {
                         type: 'MethodCall', resolvedType: rt,
@@ -1087,22 +1122,21 @@ export class Checker {
                         method: qualifiedName, args,
                     };
                 }
-                const obj = this.checkExpr(expr.obj, ctx);
+                const obj = this.checkExpr(expr.obj, ctx, pre);
                 const objType = resolvedType(obj);
                 this.rejectThisArgs(expr.args);
-                const args = expr.args.map(a => this.checkExpr(a, ctx));
+                const args = expr.args.map(a => this.checkExpr(a, ctx, pre));
                 return this.makeCall(obj, expr.method, args, objType);
             }
 
             case 'index': {
-                // a[i] → operator[]
-                const obj = this.checkExpr(expr.obj, ctx);
-                const idx = this.checkExpr(expr.index, ctx);
+                const obj = this.checkExpr(expr.obj, ctx, pre);
+                const idx = this.checkExpr(expr.index, ctx, pre);
                 return this.makeCall(obj, 'operator[]', [idx], resolvedType(obj));
             }
 
             case 'member': {
-                const obj = this.checkExpr(expr.obj, ctx);
+                const obj = this.checkExpr(expr.obj, ctx, pre);
                 const ft = this.fieldType(resolvedType(obj), expr.member);
                 return { type: 'MemberAccess', resolvedType: ft, receiver: obj, member: expr.member };
             }

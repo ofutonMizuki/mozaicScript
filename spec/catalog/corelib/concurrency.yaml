@@ -1,0 +1,185 @@
+# コアライブラリ並行 API カタログ — コアライブラリ仕様§6.2〜§6.7 / §5.14 が正本
+# 既知矛盾 M1: 命令の綴り (atomicCas32 → __builtin_atomic_cas32) の対応のみここで宣言
+
+# ───────── スレッド (§6.2) ─────────
+- id: corelib.global.threadSpawn
+  kind: global_fn
+  signature: "threadSpawn(fnName: string): u64"
+  defined_in: mozaicScript-corelib-spec.md#6.2
+  lowers_to: builtin.thread.spawn
+
+- id: corelib.global.threadJoin
+  kind: global_fn
+  signature: "threadJoin(id: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.2
+  lowers_to: builtin.thread.join
+
+# ───────── スレッドプール (§6.3) ─────────
+- id: corelib.global.threadpoolCreate
+  kind: global_fn
+  signature: "threadpoolCreate(size: u32): u64"
+  defined_in: mozaicScript-corelib-spec.md#6.3
+  lowers_to: builtin.threadpool.create
+
+- id: corelib.global.threadpoolSubmit
+  kind: global_fn
+  signature: "threadpoolSubmit(pool: u64, fnName: string): void"
+  defined_in: mozaicScript-corelib-spec.md#6.3
+  lowers_to: builtin.threadpool.submit
+
+- id: corelib.global.threadpoolWait
+  kind: global_fn
+  signature: "threadpoolWait(pool: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.3
+  lowers_to: builtin.threadpool.wait
+
+- id: corelib.global.threadpoolDestroy
+  kind: global_fn
+  signature: "threadpoolDestroy(pool: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.3
+  lowers_to: builtin.threadpool.destroy
+
+# ───────── ミューテックス (§6.4) ─────────
+- id: corelib.global.mutexCreate
+  kind: global_fn
+  signature: "mutexCreate(): u64"
+  defined_in: mozaicScript-corelib-spec.md#6.4
+  lowers_to: builtin.mutex.create
+
+- id: corelib.global.mutexLock
+  kind: global_fn
+  signature: "mutexLock(m: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.4
+  lowers_to: builtin.mutex.lock
+
+- id: corelib.global.mutexUnlock
+  kind: global_fn
+  signature: "mutexUnlock(m: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.4
+  lowers_to: builtin.mutex.unlock
+
+# ───────── 条件変数 (§6.5) ─────────
+- id: corelib.global.condvarCreate
+  kind: global_fn
+  signature: "condvarCreate(): u64"
+  defined_in: mozaicScript-corelib-spec.md#6.5
+  lowers_to: builtin.condvar.create
+
+- id: corelib.global.condvarWait
+  kind: global_fn
+  signature: "condvarWait(cv: u64, mutex: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.5
+  lowers_to: builtin.condvar.wait
+
+- id: corelib.global.condvarSignal
+  kind: global_fn
+  signature: "condvarSignal(cv: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.5
+  lowers_to: builtin.condvar.signal
+
+- id: corelib.global.condvarBroadcast
+  kind: global_fn
+  signature: "condvarBroadcast(cv: u64): void"
+  defined_in: mozaicScript-corelib-spec.md#6.5
+  lowers_to: builtin.condvar.broadcast
+
+# ───────── アトミック (§6.6) ─────────
+- id: corelib.global.atomicLoad32
+  kind: global_fn
+  signature: "atomicLoad32(ptr: u32, order: MemoryOrder): u32"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.load32
+  notes: "M2 解決: ptr はバイトアドレス (4 バイト境界アライメント必須)"
+
+- id: corelib.global.atomicStore32
+  kind: global_fn
+  signature: "atomicStore32(ptr: u32, val: u32, order: MemoryOrder): void"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.store32
+
+- id: corelib.global.atomicCas32
+  kind: global_fn
+  signature: "atomicCas32(ptr: u32, expected: u32, desired: u32, successOrder: MemoryOrder, failureOrder: MemoryOrder): boolean"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.cas32
+  notes: "boolean を返す。lowers_to 先 __builtin_atomic_cas32 は _m32 (1/0)。実装層で変換 (M5)"
+
+- id: corelib.global.atomicFetchAdd32
+  kind: global_fn
+  signature: "atomicFetchAdd32(ptr: u32, val: u32, order: MemoryOrder): u32"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.fetch_add32
+
+- id: corelib.global.atomicFetchSub32
+  kind: global_fn
+  signature: "atomicFetchSub32(ptr: u32, val: u32, order: MemoryOrder): u32"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.fetch_sub32
+
+- id: corelib.global.atomicLoad64
+  kind: global_fn
+  signature: "atomicLoad64(ptr: u32, order: MemoryOrder): u64"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.load64
+
+- id: corelib.global.atomicStore64
+  kind: global_fn
+  signature: "atomicStore64(ptr: u32, val: u64, order: MemoryOrder): void"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.store64
+
+- id: corelib.global.atomicCas64
+  kind: global_fn
+  signature: "atomicCas64(ptr: u32, expected: u64, desired: u64, successOrder: MemoryOrder, failureOrder: MemoryOrder): boolean"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.cas64
+
+- id: corelib.global.atomicFetchAdd64
+  kind: global_fn
+  signature: "atomicFetchAdd64(ptr: u32, val: u64, order: MemoryOrder): u64"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.fetch_add64
+
+- id: corelib.global.atomicFetchSub64
+  kind: global_fn
+  signature: "atomicFetchSub64(ptr: u32, val: u64, order: MemoryOrder): u64"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.fetch_sub64
+
+- id: corelib.global.atomicFence
+  kind: global_fn
+  signature: "atomicFence(order: MemoryOrder): void"
+  defined_in: mozaicScript-corelib-spec.md#6.6
+  lowers_to: builtin.atomic.fence
+
+# ───────── MemoryOrder (§5.14 / §6.7) ─────────
+- id: corelib.MemoryOrder.eq
+  kind: method
+  owner: MemoryOrder
+  signature: "operator==(other: MemoryOrder): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.14
+
+- id: corelib.global.memoryOrderRelaxed
+  kind: global_fn
+  signature: "memoryOrderRelaxed(): MemoryOrder"
+  defined_in: mozaicScript-corelib-spec.md#6.7
+
+- id: corelib.global.memoryOrderAcquire
+  kind: global_fn
+  signature: "memoryOrderAcquire(): MemoryOrder"
+  defined_in: mozaicScript-corelib-spec.md#6.7
+
+- id: corelib.global.memoryOrderRelease
+  kind: global_fn
+  signature: "memoryOrderRelease(): MemoryOrder"
+  defined_in: mozaicScript-corelib-spec.md#6.7
+
+- id: corelib.global.memoryOrderAcqRel
+  kind: global_fn
+  signature: "memoryOrderAcqRel(): MemoryOrder"
+  defined_in: mozaicScript-corelib-spec.md#6.7
+
+- id: corelib.global.memoryOrderSeqCst
+  kind: global_fn
+  signature: "memoryOrderSeqCst(): MemoryOrder"
+  defined_in: mozaicScript-corelib-spec.md#6.7

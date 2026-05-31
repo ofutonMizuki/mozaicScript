@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(gcc -o /tmp/mozaic_thread sample/main.c -lm -lpthread)",
+      "Bash(/tmp/mozaic_thread)",
+      "Bash(gcc -o /tmp/mozaic_out sample/main.c -lm -lpthread)",
+      "Bash(/tmp/mozaic_out)",
+      "Bash(node /tmp/mozaic_out.js)",
+      "Bash(gcc -o /tmp/mozaic_main sample/main.c -lm -lpthread)",
+      "Bash(/tmp/mozaic_main)",
+      "Bash(gcc -o /tmp/m_main sample/main.c -lm -lpthread)",
+      "Bash(/tmp/m_main)",
+      "Bash(node /tmp/m_main.js)",
+      "Bash(npx ts-node *)",
+      "Bash(cp sample/core.c /tmp/core.c)",
+      "Bash(gcc -o /tmp/f64test /tmp/f64test.c -lm -lpthread)",
+      "Bash(/tmp/f64test)",
+      "Bash(grep -E \"\\\\.\\(c|js|ast\\\\.json\\)$\")",
+      "Bash(gcc -o /tmp/convtest /tmp/convtest.c -lm -lpthread)",
+      "Bash(/tmp/convtest)",
+      "Bash(grep -v \"^__builtin_$\" /tmp/moc_used.txt)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(gcc -O2 -o /tmp/main_c sample/main.c -lm -lpthread)",
+      "Bash(/tmp/main_c)",
+      "Bash(npm run *)"
+    ]
+  }
+}

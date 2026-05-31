@@ -440,7 +440,7 @@ export class JSCodegen {
             case "NewExpr":
                 this.collectType(node.resolvedType, tp);
                 (node.args ?? []).forEach(a => this.scanNode(a, tp));
-                ((node as any).elements ?? []).forEach((e: ASTNode) => this.scanNode(e, tp));
+                // elements フィールドは廃止（M4）。elements は存在しない前提。
                 break;
             case "MethodCall": {
                 this.collectType(node.resolvedType, tp);
@@ -940,9 +940,9 @@ function _ms_heap_f32(addr, off) { _ms_f32_i[0] = _ms_heap[addr + off]; return _
             case "NewExpr": {
                 const resolvedType = applySubst(node.resolvedType, subst);
 
-                // 文字列/配列リテラル (elements フィールドあり)
+                // elements フィールドは廃止（IR §6 / corelib §7.2）。フロントエンドが operator_set[] 展開済みを出力する。
                 if ((node as any).elements !== undefined) {
-                    return this.emitArrayLiteral(node as any, pre, typeEnv, subst, resolvedType);
+                    throw new Error(`jscodegen: 廃止された elements フィールドが IR に存在します。コンパイラを再実行してください (M4)`);
                 }
 
                 // プリミティブラッパー → bare number

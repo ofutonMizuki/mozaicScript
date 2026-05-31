@@ -184,7 +184,9 @@ IR JSON (.ast.json)
 
 | ファイル | 内容 |
 |----------|------|
-| `mozaicScript-spec-v0_2_3.md` | 言語仕様（型、文、式、アクセス制御） |
-| `mozaicScript-corelib-spec-v0_1_2.md` | コアライブラリ仕様 (`i32`, `u32`, `f32`, `boolean`, `Array`, `Stdout`, …) |
-| `mozaicScript-ir-spec-v0_1_2.md` | IR JSON フォーマット仕様 |
-| `mozaicScript-engine-spec-v0_1_2.md` | インタプリタ・エンジン仕様 |
+| `mozaicScript-spec.md` | 言語仕様（型、文、式、アクセス制御） |
+| `mozaicScript-corelib-spec.md` | コアライブラリ仕様 (`i32`, `u32`, `f32`, `boolean`, `Array`, `Stdout`, …) |
+| `mozaicScript-ir-spec.md` | IR JSON フォーマット仕様 |
+| `mozaicScript-engine-spec.md` | インタプリタ・エンジン仕様 |
+| `mozaicScript-ownership-spec.md` | 所有権・借用システム仕様 |
+| `mozaicScript-gpu-ir-spec.md` | GPU IR / カーネル仕様 |

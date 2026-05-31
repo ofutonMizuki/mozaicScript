@@ -1,0 +1,28 @@
+# 入出力命令カタログ — 言語仕様§9.12 が正本
+
+- id: builtin.io.stdout_write
+  name: __builtin_stdout_write
+  group: io.stdout
+  params:
+    - { name: s, type: string }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.12
+  notes: "コアライブラリ Stdout.write は corelib catalog の lowers_to で対応関係を記録"
+
+- id: builtin.io.stderr_write
+  name: __builtin_stderr_write
+  group: io.stderr
+  params:
+    - { name: s, type: string }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.12
+  notes: ""
+
+- id: builtin.io.stdin_readline
+  name: __builtin_stdin_readline
+  group: io.stdin
+  params: []
+  returns: string
+  return_semantics: "標準入力から 1 行（末尾改行を含まない）"
+  defined_in: mozaicScript-spec.md#9.12
+  notes: "エンジン実装では未対応 (§10 注記)"

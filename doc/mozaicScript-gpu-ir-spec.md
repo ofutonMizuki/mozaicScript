@@ -290,11 +290,13 @@ GPU 組み込み命令の呼び出し。本 IR で許される唯一の関数呼
 | `"gpuAtomicSub"` | `ptr<u32>, u32` | u32 | `atomicSub()` |
 | `"gpuAtomicMin"` | `ptr<u32>, u32` | u32 | `atomicMin()` |
 | `"gpuAtomicMax"` | `ptr<u32>, u32` | u32 | `atomicMax()` |
-| `"gpuAtomicCas"` | `ptr<u32>, u32, u32` | u32 | `atomicCompareExchangeWeak()` の `old_value` を返す |
+| `"gpuCompareExchange"` | `ptr<u32>, u32, u32` | `struct:GpuCasResult` | `atomicCompareExchangeWeak()` の `__atomic_compare_exchange_result<u32>` を `{oldValue, exchanged}` 形に lower |
 | `"gpuAtomicLoad"` | `ptr<u32>` | u32 | `atomicLoad()` |
 | `"gpuAtomicStore"` | `ptr<u32>, u32` | void | `atomicStore()` |
 
-i32 版は名前末尾に `"I32"` を付与する（例: `"gpuAtomicAddI32"`）。
+i32 版は名前末尾に `"I32"` を付与する（例: `"gpuAtomicAddI32"`、`"gpuCompareExchangeI32"` の戻り型は `struct:GpuCasResultI32`）。
+
+> CPU 側の `__builtin_atomic_cas32` / `__builtin_atomic_cas64`（成功=1/失敗=0 を `_m32` で返す）とは命名空間を分離している。同じ「Compare-And-Swap」概念だが戻り値規約が異なるため、`Cas` という同一名を共有させない（**MUST NOT**）。
 
 ### 7.4 数値ユーティリティ
 

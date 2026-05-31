@@ -1,0 +1,133 @@
+# メモリ管理・サイズ取得命令カタログ
+# 言語仕様§9.4 / §9.6 が正本。
+# 既知矛盾 M2: 言語§3.2 は「バイトアドレス」と規定するが、本節では malloc がワードアドレスを返す。
+
+- id: builtin.memory.malloc
+  name: __builtin_malloc
+  group: memory.heap
+  params:
+    - { name: size_bytes, type: _m32 }
+  returns: _m32
+  return_semantics: "確保したヒープ領域の先頭バイトアドレス（言語§3.2 と単位を統一）"
+  defined_in: mozaicScript-spec.md#9.4
+  notes: "M2 解決 (2026-05-31): byte アドレスに統一。size_bytes はバイト数、戻り値もバイトアドレス"
+
+- id: builtin.memory.free
+  name: __builtin_free
+  group: memory.heap
+  params:
+    - { name: ptr, type: _m32 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.4
+  referenced_in:
+    - mozaicScript-ownership-spec.md#4.1
+  notes: "所有権拡張ではフロントエンドがスコープ終端に自動挿入する"
+
+- id: builtin.memory.mem_read8
+  name: __builtin_mem_read8
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+  returns: _m32
+  return_semantics: "ゼロ拡張された 8bit 値"
+  defined_in: mozaicScript-spec.md#9.4
+  notes: "M2 解決: offset の単位はバイト (言語§9.4)"
+
+- id: builtin.memory.mem_read16
+  name: __builtin_mem_read16
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+  returns: _m32
+  return_semantics: "ゼロ拡張された 16bit 値"
+  defined_in: mozaicScript-spec.md#9.4
+  notes: "M2 解決: offset の単位はバイト (言語§9.4)"
+
+- id: builtin.memory.mem_read32
+  name: __builtin_mem_read32
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+  returns: _m32
+  return_semantics: "32bit 値"
+  defined_in: mozaicScript-spec.md#9.4
+  notes: "M2 解決: offset の単位はバイト (言語§9.4)"
+
+- id: builtin.memory.mem_read64
+  name: __builtin_mem_read64
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+  returns: _m64
+  return_semantics: "64bit 値"
+  defined_in: mozaicScript-spec.md#9.4
+  notes: ""
+
+- id: builtin.memory.mem_write8
+  name: __builtin_mem_write8
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+    - { name: value,  type: _m32 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.4
+  notes: ""
+
+- id: builtin.memory.mem_write16
+  name: __builtin_mem_write16
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+    - { name: value,  type: _m32 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.4
+  notes: ""
+
+- id: builtin.memory.mem_write32
+  name: __builtin_mem_write32
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+    - { name: value,  type: _m32 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.4
+  notes: ""
+
+- id: builtin.memory.mem_write64
+  name: __builtin_mem_write64
+  group: memory.access
+  params:
+    - { name: ptr,    type: _m32 }
+    - { name: offset, type: _m32 }
+    - { name: value,  type: _m64 }
+  returns: void
+  defined_in: mozaicScript-spec.md#9.4
+  notes: ""
+
+- id: builtin.memory.zeroinit
+  name: __builtin_zeroinit
+  group: memory.init
+  params: []
+  returns: _m32
+  return_semantics: "ゼロ初期化値"
+  defined_in: mozaicScript-spec.md#9.4
+  notes: ""
+
+- id: builtin.memory.sizeof
+  name: __builtin_sizeof
+  group: memory.sizeof
+  params: []
+  returns: _m32
+  return_semantics: "型 T の 1 インスタンスあたりのバイト数"
+  defined_in: mozaicScript-spec.md#9.6
+  referenced_in:
+    - mozaicScript-ir-spec.md#5
+    - mozaicScript-engine-spec.md#7
+  notes: "ジェネリック命令。IR では targetType フィールドに具体型名を埋め込む"

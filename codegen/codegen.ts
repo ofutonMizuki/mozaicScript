@@ -1518,19 +1518,9 @@ static void _ms_panic_str(int32_t ptr, int32_t len) {
             }
         };
 
-        // 文字列リテラル（elements あり → Array<u32> = 参照型）
-        if (node.elements !== undefined) {
-            const n = node.elements.length;
-            const { ptr: ptrField, len: lenField } = this.arrayFields();
-            declare();
-            if (n > 0) {
-                pre.push(`${tmp}${acc}${ptrField} = _ms_malloc((int32_t)(${n * 4}));`);
-                for (let i = 0; i < n; i++) {
-                    pre.push(`_ms_heap[${tmp}${acc}${ptrField} + ${i}] = (int32_t)${node.elements[i].value};`);
-                }
-            }
-            pre.push(`${tmp}${acc}${lenField} = (int32_t)${n};`);
-            return tmp;
+        // elements フィールドは廃止（IR §6 / corelib §7.2）。フロントエンドが operator_set[] 展開済みを出力する。
+        if ((node as any).elements !== undefined) {
+            throw new Error(`codegen: 廃止された elements フィールドが IR に存在します。コンパイラを再実行してください (M4)`);
         }
 
         if (CCodegen.MACHINE_TYPES.has(concreteType)) {

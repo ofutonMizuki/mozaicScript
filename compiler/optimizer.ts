@@ -65,7 +65,7 @@ export class Optimizer {
                 const ne = ma.receiver as IR.NewExpr;
                 const base = ne.resolvedType.split('<')[0];
                 const info = this.wrappers.get(base);
-                if (info && ma.member === info.fieldName && !ne.elements && ne.args.length === 1) {
+                if (info && ma.member === info.fieldName && ne.args.length === 1) {
                     return ne.args[0];
                 }
             }
@@ -98,7 +98,7 @@ export class Optimizer {
             }
             case 'NewExpr': {
                 const n = node as IR.NewExpr;
-                if (n.elements) return n; // 文字列リテラルはスキップ
+                // elements フィールドは廃止済み（M4）
                 return { ...n, args: n.args.map(a => this.optNode(a)) };
             }
             case 'MemberAccess': {
@@ -165,7 +165,7 @@ export class Optimizer {
             if (arg.type === 'NewExpr') {
                 const ne = arg as IR.NewExpr;
                 const base = ne.resolvedType.split('<')[0];
-                if (this.wrappers.has(base) && !ne.elements && ne.args.length === 1) {
+                if (this.wrappers.has(base) && ne.args.length === 1) {
                     changed = true;
                     return ne.args[0];
                 }
@@ -330,7 +330,7 @@ export class Optimizer {
             }
             case 'NewExpr': {
                 const n = node as IR.NewExpr;
-                if (n.elements) return n;
+                // elements フィールドは廃止済み（M4）
                 return { ...n, args: n.args.map(a => this.subst(a, map)) };
             }
             case 'MemberAccess': {

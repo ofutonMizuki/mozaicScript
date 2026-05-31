@@ -1,0 +1,665 @@
+// ============================================================
+//  main.moz — mozaicScript 全仕様網羅サンプル（メインプログラム）
+//
+//  カバー範囲:
+//    § 2   ファイル種別 (.moz)
+//    § 4   型システム（型推論禁止・型エイリアス・ジェネリクス・暗黙変換禁止）
+//    § 5   構文規則（リテラル・let/const・関数・制御構文・スコープ）
+//    § 6   クラス・演算子オーバーロード・this
+//    § 7   モジュールシステム（import as * / import as Name）
+//    § 8   エラーハンドリング（Result / Option）
+//    § 9   組み込み命令（コアラッパー経由）
+//    § 12  コメント・else / else if・エスケープシーケンス
+//    § 13  マルチスレッド（ミューテックス・条件変数・アトミック）
+// ============================================================
+
+// § 7.1  インポート構文
+//   import "パス" as *        → グローバル展開（名前衝突はコンパイルエラー）
+//   import "パス" as 識別子   → 名前空間付き
+//   拡張子省略禁止・循環インポート禁止・ファイル先頭のみ記述可
+
+import "./core.moc"     as *;    // boolean, i32, u32, f32, f64, i64, u64,
+                                  // Array, string, char, Option, Result,
+                                  // print, panic, mutex*, thread*, 定数群
+import "./geometry.moz" as Geo;  // Vec2, max, min, clamp, safeDivide,
+                                  // safeSqrt, findFirst, findLongest
+
+
+// ============================================================
+//  § 4.5  型エイリアス（.moz でも使用可能）
+//  § 4.6  型同一性: エイリアスと元の型はコンパイラ内部で完全に同一
+// ============================================================
+type Index   = u32;   // Index == u32
+type Score   = i32;   // Score == i32
+type Meters  = f32;   // Meters == f32
+
+
+// ============================================================
+//  § 12.1  コメント構文
+//    // 一行コメント
+//    /* 複数行コメント（ネスト禁止 MUST NOT） */
+// ============================================================
+
+/*
+  以下の各セクションが仕様のどの条項に対応しているか
+  インラインコメントで示す。
+*/
+
+
+// ============================================================
+//  § 5.2  変数・定数宣言
+//  § 5.3  関数宣言（アクセス修飾子必須・型アノテーション省略禁止）
+//  § 6.2  純粋OOP: すべての値はクラスのインスタンス（new 必須）
+// ============================================================
+
+// void 関数（§ 5.3  void 関数の return は省略可能）
+public function printSeparator(): void {
+    print("════════════════════════\n");
+}
+
+// 戻り値あり関数（§ 5.3  すべてのコードパスに return 必須 MUST）
+public function abs(n: i32): i32 {
+    if (n < new i32(0)) {
+        return n.negate();   // § 9.5  符号反転メソッド
+    }
+    return n;
+}
+
+// § 4.7  ジェネリクス関数（型制約なし版）
+// 呼び出し時に型パラメータを明示することが必須（MUST）
+public function identity<T>(value: T): T {
+    return value;
+}
+
+// private 関数（§ 6.3  private はエクスポートされない）
+private function square(n: i32): i32 {
+    return n * n;
+}
+
+
+// ============================================================
+//  § 6  クラス定義
+//
+//  Counter — シンプルなカウンタ
+//    - public / private アクセス修飾子の使い分け（§ 6.1）
+//    - コンストラクタ 1 つのみ（MUST §6.1）
+//    - this の使い方（§ 6.6）
+//    - 演算子オーバーロード（§ 6.5）
+// ============================================================
+public class Counter {
+    private let count: i32;   // private: クラス外から直接アクセス不可
+    private let step: i32;
+
+    public constructor(initialCount: i32, stepSize: i32) {
+        // § 6.6  this.フィールド: メンバアクセスは ✅
+        this.count = initialCount;
+        this.step  = stepSize;
+    }
+
+    public mut increment(): void {
+        this.count = this.count + this.step;
+    }
+
+    public mut decrement(): void {
+        this.count = this.count - this.step;
+    }
+
+    public value(): i32 {
+        return this.count;
+    }
+
+    // 自身を変更するのみ (mut)。所有権モデルでは `return this` は所有権ムーブとなり扱いづらい。
+    public mut reset(): void {
+        this.count = new i32(0);
+    }
+
+    // § 6.5  演算子オーバーロード (借用で受け取る)
+    public operator==(other: &Counter): boolean {
+        return this.count == other.count;
+    }
+    public operator<(other: &Counter): boolean {
+        return this.count < other.count;
+    }
+    public operator>(other: &Counter): boolean {
+        return this.count > other.count;
+    }
+}
+
+
+// ============================================================
+//  § 5.1  リテラルと文字列
+//  § 12.3  エスケープシーケンス
+// ============================================================
+private function demoLiteralsAndStrings(): void {
+    print("【リテラル・文字列】\n");
+
+    // § 5.1  文字列リテラルは .moz でも使用可能（→ Array<u32> に自動展開）
+    // § 5.1  数値リテラルは .moc コンストラクタ引数のみ（→ 定数を使用）
+    const greeting:   string = "Hello, mozaicScript!\n";
+    const withTab:    string = "col1\tcol2\tcol3\n";       // \t タブ
+    const withQuote:  string = "She said \"hi\"\n";         // \" ダブルクォート
+    const withSlash:  string = "path: C:\\Users\\file\n";   // \\ バックスラッシュ
+    const withCRLF:   string = "line1\r\nline2\n";          // \r CR
+    const withNull:   string = "start\0end\n";              // \0 ヌル文字
+
+    print(greeting);
+    print(withTab);
+    print(withQuote);
+    print(withSlash);
+
+    // § 4.6  string == Array<u32> == Array<char>
+    // operator[] で文字コード（u32 = char）を取り出せる
+    const firstChar: char   = greeting[new u32(0)];     // 'H' = 72
+    const secondChar: u32   = greeting[new u32(1)];       // 'e' = 101
+    // char == u32 は同一型なので代入可能
+    const sameAsFirst: u32  = firstChar;
+
+    // § 5.2  let（再代入可）と const（再代入禁止）
+    let mutableStr: string  = "first\n";
+    mutableStr               = "second\n";             // ✅ let は再代入可
+    // const immutable: string = "x\n";
+    // immutable = "y\n";                              // ❌ const 再代入はコンパイルエラー
+    print(mutableStr);
+}
+
+
+// ============================================================
+//  § 5.4  制御構文: for / while / if-else if-else
+//  § 5.5  break
+//  § 5.4  コンパイラ脱糖ルール
+//    if (expr)   → __builtin_if(expr)
+//    while (expr)→ __builtin_while(expr)
+//    a <= b      → a < b || a == b
+//    a >= b      → a > b || a == b
+// ============================================================
+private function demoControlFlow(): void {
+    print("【制御構文】\n");
+
+    // --- for ループ ---
+    // § 5.4  ループ変数にも型アノテーション・new が必須
+    let sum: i32 = new i32(0);
+    for (let i: i32 = new i32(0); i < new i32(10); i = i + new i32(1)) {
+        sum = sum + i;   // 0+1+2+...+9 = 45
+    }
+    print("for: 0..9 の和を計算\n");
+
+    // --- while ループ + break ---
+    // § 5.5  break は直近のループのみ終了。continue は仕様外。
+    let power: i32 = new i32(1);
+    while (power < new i32(100)) {
+        power = power + power;   // 1 → 2 → 4 → 8 → ... → 128
+        if (power > new i32(10) + new i32(10) + new i32(10) + new i32(10) + new i32(10)) {
+            break;   // power が 50 超で脱出
+        }
+    }
+    print("while + break: 実行完了\n");
+
+    // --- if / else if / else（§ 12.2）---
+    // else if は compiler が { if { } else { if { } } } に脱糖
+    if (sum > power) {
+        print("sum > power\n");
+    } else if (sum == power) {
+        print("sum == power\n");
+    } else {
+        print("sum < power\n");
+    }
+
+    // --- >= と <= の脱糖デモ ---
+    // a >= b → a > b || a == b  （compiler が自動脱糖）
+    const limit: i32 = new i32(10);
+    let j: i32 = new i32(0);
+    while (j <= limit) {        // <= が脱糖される
+        j = j + new i32(1);
+    }
+    if (j >= new i32(10)) {         // >= が脱糖される
+        print("j >= 10: OK\n");
+    }
+
+    // --- ネストしたループ（break は直近のみ終了）---
+    for (let outer: i32 = new i32(0); outer < new i32(5); outer = outer + new i32(1)) {
+        for (let inner: i32 = new i32(0); inner < new i32(5); inner = inner + new i32(1)) {
+            if (inner == new i32(2)) {
+                break;   // inner ループのみ終了。outer ループは継続。
+            }
+        }
+    }
+}
+
+
+// ============================================================
+//  § 5.6  スコープ規則
+//    - ブロックスコープ（{} 単位）
+//    - 内側から外側の変数へのアクセス: ✅
+//    - 外側から内側の変数へのアクセス: ❌ コンパイルエラー
+//    - 同名変数のシャドーイング: ❌ コンパイルエラー（MUST NOT）
+//    - クロージャ: 未サポート（将来追加予定）
+// ============================================================
+private function demoScoping(): void {
+    print("【スコープ】\n");
+
+    const outer: i32 = new i32(10);
+
+    {
+        // ✅ 内側から外側の変数にアクセス可能
+        const inner: i32 = outer + new i32(1);   // inner = 11
+
+        // ❌ シャドーイング禁止（コメントアウト）
+        // const outer: i32 = new i32(0);   // コンパイルエラー
+
+        {
+            // ✅ 二重ネストしたブロックからも outer にアクセス可
+            const deepInner: i32 = outer + inner;   // 10 + 11 = 21
+        }
+        // deepInner はここではスコープ外（アクセス不可）
+    }
+    // inner / deepInner はここではスコープ外
+
+    const doubled: i32 = outer + outer;   // ✅ outer はまだ有効
+    print("スコープテスト: 通過\n");
+}
+
+
+// ============================================================
+//  § 4.4  暗黙的型変換の禁止
+//  § 9.7  型変換命令（すべて明示的メソッド呼び出し）
+// ============================================================
+private function demoExplicitConversion(): void {
+    print("【明示的型変換】\n");
+
+    const n: i32 = new i32(10);
+
+    // i32 → 他の型（すべて明示的）
+    const asI64: i64 = n.toI64();        // 符号拡張
+    const asF32: f32 = n.toF32();        // int → float
+    const asF64: f64 = n.toF64();        // int → double
+    const asU32: u32 = n.toU32();        // ビット再解釈
+
+    // f32 の演算と変換
+    const f: f32    = new f32(1.0) + new f32(0.5) + new f32(0.5);  // 2.0
+    const fTrunc: i32 = f.toI32();      // 切り捨て: 2
+    const fToF64: f64 = f.toF64();      // 精度拡張
+
+    // u32 → i64（二段階: u32 → u64 → f64）
+    const asU64: u64   = asU32.toU64();
+    const asF64v: f64  = asU64.toF64();
+
+    // f64 → f32（精度縮小）
+    const narrowed: f32 = new f64(3.141592653589793).toF32();
+
+    // f64 → i64（切り捨て）
+    const piInt: i64 = new f64(3.141592653589793).toI64();   // 3
+
+    print("型変換: 完了\n");
+}
+
+
+// ============================================================
+//  § 9.8  ビット操作命令（i32 メソッド経由）
+//  § 9.9  浮動小数点演算命令（f32 メソッド経由）
+//  § 9.10 超越関数（予約済み・バックエンド任意実装）
+// ============================================================
+private function demoBuiltinOps(): void {
+    print("【ビット操作・浮動小数点演算】\n");
+
+    // ビット操作
+    const bits: i32       = new i32(1);
+    const leadingZ: i32   = bits.clz();         // 先頭ゼロビット数: 31
+    const trailingZ: i32  = bits.ctz();         // 末尾ゼロビット数: 0
+    const popcount: i32   = bits.popcnt();      // 1ビット数: 1
+    const rotated: i32    = bits.rotl(new i32(4)); // 左回転4: 16
+    const shifted: i32    = bits.shl(new i32(3)); // 左シフト3: 8
+    const shrunk: i32     = shifted.shr(new i32(1));// 算術右シフト1: 4
+
+    // u32 論理シフト
+    const uBits: u32      = new u32(1);
+    const uShifted: u32   = uBits.shl(new u32(10)); // 論理左シフト: 1024
+    const uBack: u32      = uShifted.shr(new u32(1)); // 論理右シフト: 512
+
+    // 浮動小数点演算
+    const base: f32       = new f32(4.0);
+    const root: f32       = base.sqrt();       // 2.0
+    const absVal: f32     = new f32(-1.0).abs(); // 1.0
+    const floored: f32    = (new f32(1.0) + new f32(0.5) + new f32(0.5) + new f32(0.5)).floor(); // 2.0 → floor
+    const ceiled: f32     = (new f32(1.0) + new f32(0.5)).ceil();   // 2.0
+    const nearest: f32    = (new f32(1.0) + new f32(0.5)).nearest();// 最近接偶数丸め
+    const maxF: f32       = base.max(new f32(5.0));            // 5.0
+    const minF: f32       = base.min(new f32(5.0));            // 4.0
+
+    // f64 演算
+    const sqrtTwo: f64    = new f64(2.0).sqrt();               // √2
+    const negPi: f64      = new f64(3.141592653589793).negate();              // -π
+
+    // § 9.10  超越関数（実装依存: バックエンドがサポートしない場合は自前実装）
+    const sinVal: f32     = new f32(0.0).sin();               // sin(0) = 0
+    const cosVal: f32     = new f32(0.0).cos();               // cos(0) = 1
+    const expVal: f64     = new f64(1.0).exp();                // e^1 ≈ 2.718
+    const logVal: f64     = new f64(2.718281828459045).log();                  // ln(e) = 1
+
+    print("ビット操作・浮動小数点: 完了\n");
+}
+
+
+// ============================================================
+//  § 4.7  ジェネリクス関数の呼び出し（型パラメータ明示必須）
+// ============================================================
+private function demoGenerics(): void {
+    print("【ジェネリクス】\n");
+
+    // ✅ 型パラメータを明示
+    const x: i32    = identity<i32>(new i32(10));
+    const y: f32    = identity<f32>(new f32(3.1415927));
+    const z: Score  = identity<Score>(new i32(100));  // Score == i32
+
+    // ❌ 型パラメータ省略はコンパイルエラー（コメントアウト）
+    // const w = identity(new i32(5));   // コンパイルエラー
+
+    // geometry.moz のジェネリクス関数（名前空間付き）
+    const bigger:  i32    = Geo.max<i32>(new i32(3), new i32(5));      // 5
+    const smaller: f32    = Geo.min<f32>(new f32(3.0), new f32(4.0));      // 3.0
+    const clamped: i32    = Geo.clamp<i32>(new i32(100), new i32(0), new i32(10)); // 10
+
+    // Vec2 同士の max（operator> を利用）
+    const v1: Geo.Vec2    = new Geo.Vec2(new f32(3.0), new f32(4.0));   // length=5
+    const v2: Geo.Vec2    = new Geo.Vec2(new f32(1.0), new f32(1.0));      // length=√2
+    const longer: Geo.Vec2 = Geo.max<Geo.Vec2>(v1, v2);          // v1
+
+    print("ジェネリクス: 完了\n");
+}
+
+
+// ============================================================
+//  § 6  クラスと演算子オーバーロード
+// ============================================================
+private function demoClassesAndOperators(): void {
+    print("【クラス・演算子】\n");
+
+    // § 5.2  すべての変数は new によるインスタンス化が必須
+    let   c1: Counter = new Counter(new i32(0), new i32(1));
+    const c2: Counter = new Counter(new i32(10), new i32(2));
+
+    c1.increment();
+    c1.increment();
+    c1.increment();                    // count = 3
+
+    // § 6.5  演算子オーバーロードの使用 (引数は &Counter で借用)
+    const isSmaller: boolean = c1 < &c2;          // true（3 < 10）
+    const isEqual:   boolean = c1 == &c2;         // false
+
+    // § 6.5  !a → a.operatorNot() に脱糖
+    const notEqual: boolean  = !(c1 == &c2);      // true
+
+    // § 5.4  a >= b は a > b || a == b に脱糖
+    const atLeast: boolean   = c2 >= &c1;         // true（10 >= 3）
+
+    // mut メソッドは自身を変更するのみ
+    c1.reset();                                   // c1.count = 0
+
+    // --- Vec2 演算 (引数は &Vec2 で借用) ---
+    const v1: Geo.Vec2 = new Geo.Vec2(new f32(3.0), new f32(4.0));
+    const v2: Geo.Vec2 = new Geo.Vec2(new f32(1.0), new f32(2.0));
+
+    const v3: Geo.Vec2 = v1 + &v2;             // (4, 6)
+    const v4: Geo.Vec2 = v1 - &v2;             // (2, 2)
+    const v5: Geo.Vec2 = v1 * new f32(2.0);    // (6, 8)
+    const dot: f32     = v1.dot(&v2);          // 3*1 + 4*2 = 11
+    const len: Meters  = v1.length();          // sqrt(9+16) = 5.0
+    const neg: Geo.Vec2 = v1.negate();         // (-3, -4)
+    const norm: Geo.Vec2 = v1.normalize();     // (0.6, 0.8)
+    const eq: boolean  = v1 == &v2;            // false
+    const gt: boolean  = v1 > &v2;             // true（長さ5 > √5）
+
+    print("クラス・演算子: 完了\n");
+}
+
+
+// ============================================================
+//  § 6.5  Array の operator[] / operator_set[]
+// ============================================================
+private function demoArray(): void {
+    print("【Array】\n");
+
+    // Array<i32> を生成・書き込み・読み込み
+    const SIZE: u32         = new u32(10);
+    let arr: Array<i32>    = new Array<i32>(SIZE);
+
+    // a[i] = v → arr.operator_set[](i, v)
+    for (let i: u32 = new u32(0); i < SIZE; i = i + new u32(1)) {
+        arr[i] = i.toI32() + new i32(1);   // arr = [1, 2, 3, ..., 10]
+    }
+
+    // a[i] → arr.operator[](i)
+    const first: i32  = arr[new u32(0)];            // 1
+    const last: i32   = arr[SIZE - new u32(1)];      // 10
+    const third: i32  = arr[new u32(2)];             // 3
+
+    // § 4.5  型エイリアス Index == u32 で添字アクセス
+    const idx: Index  = new u32(4);
+    const elem: Score = arr[idx];                 // 5  （Score == i32）
+
+    // geometry.moz の findFirst（Option デモ）— 配列は &Array<i32> で借用
+    const target: i32        = new i32(5);
+    const found: Option<i32> = Geo.findFirst(&arr, target);
+
+    if (found.isSome()) {
+        const index: i32 = found.unwrap();        // 4（0-origin インデックス）
+        print("findFirst: 要素が見つかりました\n");
+    } else {
+        print("findFirst: 見つかりませんでした\n");
+    }
+
+    // 存在しない値を探す → None
+    const notPresent: Option<i32> = Geo.findFirst(&arr, new i32(100));
+    if (notPresent.isNone()) {
+        print("findFirst(100): None が返りました\n");
+    }
+
+    // § 9.4  使い終わったらメモリ解放
+    arr.free();
+
+    // --- Array<f32> ---
+    let farr: Array<f32> = new Array<f32>(new u32(5));
+    farr[new u32(0)] = new f32(1.0);
+    farr[new u32(1)]  = new f32(2.0);
+    farr[new u32(2)]  = new f32(3.0);
+    farr[new u32(3)]= new f32(4.0);
+    farr[new u32(4)] = new f32(5.0);
+    const fsum: f32 = farr[new u32(0)] + farr[new u32(1)] + farr[new u32(2)]
+                    + farr[new u32(3)] + farr[new u32(4)];   // 15.0
+    farr.free();
+
+    print("Array: 完了\n");
+}
+
+
+// ============================================================
+//  § 8  Result<T> / Option<T> — エラーハンドリング
+// ============================================================
+private function demoErrorHandling(): void {
+    print("【Result / Option エラーハンドリング】\n");
+
+    // --- Result: 安全な除算 ---
+    const ok: Result<i32>   = Geo.safeDivide(new i32(10), new i32(2));
+    if (ok.isOk()) {
+        const q: i32         = ok.unwrap();   // 5
+        print("safeDivide(10, 2): Ok\n");
+    }
+
+    const err: Result<i32>  = Geo.safeDivide(new i32(10), new i32(0));
+    if (err.isErr()) {
+        const msg: string    = err.unwrapErr();  // "division by zero"
+        print("safeDivide(10, 0): Err → ");
+        print(msg);
+        print("\n");
+    }
+
+    // --- Result: 安全な平方根 ---
+    const goodSqrt: Result<f32> = Geo.safeSqrt(new f32(4.0));
+    if (goodSqrt.isOk()) {
+        const root: f32 = goodSqrt.unwrap();   // 2.0
+        print("safeSqrt(4.0): Ok\n");
+    }
+
+    const badSqrt: Result<f32> = Geo.safeSqrt(new f32(-1.0));
+    if (badSqrt.isErr()) {
+        print("safeSqrt(-1.0): Err\n");
+    }
+
+    // --- Option: Vec2 配列から最長ベクトルを探す ---
+    const VSIZE: u32 = new u32(3);
+    let vArr: Array<Geo.Vec2> = new Array<Geo.Vec2>(VSIZE);
+    vArr[new u32(0)] = new Geo.Vec2(new f32(1.0), new f32(1.0));
+    vArr[new u32(1)]  = new Geo.Vec2(new f32(3.0), new f32(4.0));   // length=5 ← 最大
+    vArr[new u32(2)]  = new Geo.Vec2(new f32(2.0), new f32(0.0));
+
+    const longest: Option<Geo.Vec2> = Geo.findLongest(&vArr, VSIZE);
+    if (longest.isSome()) {
+        const best: Geo.Vec2 = longest.unwrap();
+        print("findLongest: Vec2 が見つかりました\n");
+    }
+    vArr.free();
+
+    print("エラーハンドリング: 完了\n");
+}
+
+
+// ============================================================
+//  § 13  マルチスレッド
+//  § 9.11  スレッド・ミューテックス・条件変数・アトミック命令
+//
+//  【設計原則】
+//    - プリエンプティブ環境を前提に記述する（MUST）§13.1
+//    - 切り替えタイミングに依存したコードは禁止（MUST NOT）
+//    - 共有メモリアクセスにはミューテックスを必ず使用（MUST）
+// ============================================================
+
+// スレッドから呼び出される関数（関数名を文字列で threadSpawn に渡す）
+public function workerTask(): void {
+    print("worker: 実行中\n");
+}
+
+private function demoMultithreading(): void {
+    print("【マルチスレッド】\n");
+
+    // --- ミューテックス ---
+    const mutex: u64 = mutexCreate();
+    mutexLock(mutex);
+    // ── クリティカルセクション開始 ──
+    print("クリティカルセクション: 実行中\n");
+    // ── クリティカルセクション終了 ──
+    mutexUnlock(mutex);
+
+    // --- 条件変数 ---
+    const cv: u64    = condvarCreate();
+    // condvarWait(cv, mutex);       // 実際の使用では他スレッドから signal を待機
+    condvarSignal(cv);               // 待機中スレッド 1 つを起こす
+    condvarBroadcast(cv);            // 待機中スレッドをすべて起こす
+
+    // --- アトミック操作 ---
+    // アトミック加算（マルチスレッド安全なカウンタ更新）
+    const counterPtr: u32 = new u32(0);   // ※ 実際のポインタはメモリ管理で取得する
+    // const prev: u32 = atomicFetchAdd(counterPtr, new u32(1));
+    // Compare-And-Swap
+    // const swapped: u32 = atomicCas(counterPtr, new u32(0), new u32(1));
+
+    // --- スレッドプール ---
+    const poolSize: u32  = new u32(4);
+    const pool: u64      = threadpoolCreate(poolSize);
+    threadpoolSubmit(pool, "workerTask");
+    threadpoolSubmit(pool, "workerTask");
+    threadpoolWait(pool);              // 全タスクの完了を待機
+    threadpoolDestroy(pool);
+
+    // --- スレッド生成・待機 ---
+    const tid: u64 = threadSpawn("workerTask");
+    threadJoin(tid);
+
+    print("マルチスレッド: 完了\n");
+}
+
+
+// ============================================================
+//  § 4.3  any 型は存在しない（MUST NOT） — コメントで示す
+//  § 4.2  リテラル型は禁止 — コメントで示す
+//  § 6.7  .moz での再帰的型定義は禁止 — コメントで示す
+// ============================================================
+private function demoProhibitions(): void {
+    print("【禁止事項（コンパイルエラーになる例）】\n");
+
+    // --- 禁止: any 型（§ 4.3）---
+    // let x: any = new i32(0);           // コンパイルエラー
+
+    // --- 禁止: リテラル型（§ 4.2）---
+    // let n: 42 = new i32(0);            // コンパイルエラー
+
+    // --- 禁止: 型推論（§ 4.1）---
+    // let inferred = new i32(0);         // 型アノテーションが必要
+
+    // --- 禁止: 暗黙的型変換（§ 4.4）---
+    // const f: f32 = new i32(1);          // i32 → f32 の暗黙変換は禁止
+    // ✅ 正: const f: f32 = new i32(1).toF32();
+
+    // --- 数値リテラル: コンストラクタ引数位置でのみ許可（§ 5.1）---
+    // ✅ 正: const a: i32 = new i32(10);   // .moz / .moc 両方で許可
+    // ❌ 誤: let a: i32 = 10;              // コンストラクタ引数以外のリテラルは禁止
+
+    // --- 禁止: シャドーイング（§ 5.6）---
+    const outer2: i32 = new i32(0);
+    {
+        // const outer2: i32 = new i32(1); // コンパイルエラー（シャドーイング）
+    }
+
+    // --- 禁止: _m32 等の使用（§ 2）---
+    // let raw: _m32 = __builtin_zeroinit();   // .moz ではコンパイルエラー
+
+    // --- 禁止: ループ外の break（§ 5.5）---
+    // break;   // コンパイルエラー
+
+    // --- 禁止: protected（§ 6.1 現バージョン未実装）---
+    // protected let x: i32 = new i32(0);  // コンパイルエラー
+
+    print("禁止事項の確認: 完了\n");
+}
+
+
+// ============================================================
+//  エントリポイント — public function main(): void
+// ============================================================
+public function main(): void {
+    print("mozaicScript 全仕様サンプル開始\n");
+    printSeparator();
+
+    demoLiteralsAndStrings();
+    printSeparator();
+
+    demoControlFlow();
+    printSeparator();
+
+    demoScoping();
+    printSeparator();
+
+    demoExplicitConversion();
+    printSeparator();
+
+    demoBuiltinOps();
+    printSeparator();
+
+    demoGenerics();
+    printSeparator();
+
+    demoClassesAndOperators();
+    printSeparator();
+
+    demoArray();
+    printSeparator();
+
+    demoErrorHandling();
+    printSeparator();
+
+    demoMultithreading();
+    printSeparator();
+
+    demoProhibitions();
+    printSeparator();
+
+    print("全デモ完了\n");
+}

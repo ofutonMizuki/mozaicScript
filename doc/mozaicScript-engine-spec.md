@@ -55,7 +55,8 @@ export type ASTNode =
     | BreakStmt
     | RawLiteral
     | MemberAccess
-    | BlockStmt;
+    | BlockStmt
+    | BorrowExpr;
 
 export interface ImportDecl {
     type: "ImportDecl";
@@ -89,6 +90,7 @@ export interface FunctionDecl {
     type: "FunctionDecl";
     name: string;
     access: AccessModifier;
+    isMut: boolean;          // 所有権・借用システム拡張§5.1 で追加。mut 修飾子の有無
     typeParams: string[];
     params: { name: string; resolvedType: string }[];
     returnType: string;
@@ -114,7 +116,8 @@ export interface NewExpr {
     type: "NewExpr";
     resolvedType: string;
     args: ASTNode[];
-    elements?: RawLiteral[]; // 文字列リテラル展開時のみ（elements がある場合は文字列展開）
+    // 文字列リテラルは IR 仕様§6 に従いフロントエンドが operator_set[] 連鎖に展開済みのため、
+    // 専用の elements フィールドは存在しない。
 }
 
 export interface Assign {
@@ -142,6 +145,16 @@ export interface MemberAccess {
     resolvedType: string;
     receiver: ASTNode;
     member: string;
+}
+
+// 所有権・借用システム拡張§5.2 で導入された借用式ノード。
+// `&a` / `&mut a` の AST 表現。エンジンは式評価でターゲットの ObjectValue 参照を
+// そのまま返す（ゼロコスト借用）。
+export interface BorrowExpr {
+    type: "BorrowExpr";
+    isMut: boolean;
+    expr: ASTNode;
+    resolvedType: string;
 }
 
 export interface IfStmt {
@@ -483,24 +496,43 @@ export const builtins: Record<string, BuiltinFn> = Object.fromEntries([
     ["__builtin_condvar_signal",    ([_c])     => voidValue()],
     ["__builtin_condvar_broadcast", ([_c])     => voidValue()],
 
-    // atomic は通常のヒープ読み書き（シングルスレッドなので競合なし）
-    ["__builtin_atomic_load",      ([ptr])           => HeapManager.read(v(ptr))],
-    ["__builtin_atomic_store",     ([ptr, val])       => { HeapManager.write(v(ptr), val); return voidValue(); }],
-    ["__builtin_atomic_cas",       ([ptr, exp, des])  => {
+    // atomic は通常のヒープ読み書き（シングルスレッドなので競合なし、order 引数は無視）
+    // 命令名は IR / 言語仕様§9.11 と完全一致させること（MUST）。32bit / 64bit のサフィックスを省略してはならない（MUST NOT）
+    ["__builtin_atomic_load32",     ([ptr, _order])               => HeapManager.read(v(ptr))],
+    ["__builtin_atomic_store32",    ([ptr, val, _order])          => { HeapManager.write(v(ptr), val); return voidValue(); }],
+    ["__builtin_atomic_cas32",      ([ptr, exp, des, _so, _fo])   => {
         const cur = HeapManager.read(v(ptr)) as any;
         if (cur.value === v(exp)) { HeapManager.write(v(ptr), des); return primitive(1); }
         return primitive(0);
     }],
-    ["__builtin_atomic_fetch_add", ([ptr, val]) => {
+    ["__builtin_atomic_fetch_add32", ([ptr, val, _order]) => {
         const cur = HeapManager.read(v(ptr)) as any;
         HeapManager.write(v(ptr), primitive(cur.value + v(val)));
         return primitive(cur.value);
     }],
-    ["__builtin_atomic_fetch_sub", ([ptr, val]) => {
+    ["__builtin_atomic_fetch_sub32", ([ptr, val, _order]) => {
         const cur = HeapManager.read(v(ptr)) as any;
         HeapManager.write(v(ptr), primitive(cur.value - v(val)));
         return primitive(cur.value);
     }],
+    ["__builtin_atomic_load64",     ([ptr, _order])               => HeapManager.read(v(ptr))],
+    ["__builtin_atomic_store64",    ([ptr, val, _order])          => { HeapManager.write(v(ptr), val); return voidValue(); }],
+    ["__builtin_atomic_cas64",      ([ptr, exp, des, _so, _fo])   => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        if (cur.value === v(exp)) { HeapManager.write(v(ptr), des); return primitive(1); }
+        return primitive(0);
+    }],
+    ["__builtin_atomic_fetch_add64", ([ptr, val, _order]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive(cur.value + v(val)));
+        return primitive(cur.value);
+    }],
+    ["__builtin_atomic_fetch_sub64", ([ptr, val, _order]) => {
+        const cur = HeapManager.read(v(ptr)) as any;
+        HeapManager.write(v(ptr), primitive(cur.value - v(val)));
+        return primitive(cur.value);
+    }],
+    ["__builtin_atomic_fence",      ([_order])                     => voidValue()],
 
     // __builtin_if / __builtin_while / __builtin_sizeof は evaluator で特別処理
 

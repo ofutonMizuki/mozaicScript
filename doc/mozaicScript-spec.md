@@ -340,7 +340,6 @@ mozaicScriptは `try`, `catch`, `throw` といった例外専用の制御構造�
 | `__builtin_i64_eq(a: _m64, b: _m64): _m64` | 等価比較（0 or 1） |
 | `__builtin_i64_lt(a: _m64, b: _m64): _m64` | 小なり比較（0 or 1） |
 | `__builtin_i64_gt(a: _m64, b: _m64): _m64` | 大なり比較（0 or 1） |
-| `__builtin_i64_neg(a: _m64): _m64` | 符号反転 |
 | `__builtin_u64_add(a: _m64, b: _m64): _m64` | 符号なし64bit整数加算 |
 | `__builtin_u64_sub(a: _m64, b: _m64): _m64` | 符号なし64bit整数減算 |
 | `__builtin_u64_mul(a: _m64, b: _m64): _m64` | 符号なし64bit整数乗算 |
@@ -399,24 +398,30 @@ mozaicScriptは `try`, `catch`, `throw` といった例外専用の制御構造�
 
 | 命令 | 説明 |
 |------|------|
-| `__builtin_malloc(size_bytes: _m32): _m32` | ヒープメモリ確保（ワードアドレス `_m32` を返す） |
+| `__builtin_malloc(size_bytes: _m32): _m32` | ヒープメモリ確保（バイトアドレス `_m32` を返す。§3.2 と同じ単位） |
 | `__builtin_free(ptr: _m32): void` | ヒープメモリ解放 |
-| `__builtin_mem_read8(ptr: _m32, offset: _m32): _m32` | 8bit読み込み（ゼロ拡張） |
-| `__builtin_mem_read16(ptr: _m32, offset: _m32): _m32` | 16bit読み込み（ゼロ拡張） |
-| `__builtin_mem_read32(ptr: _m32, offset: _m32): _m32` | 32bit読み込み |
-| `__builtin_mem_read64(ptr: _m32, offset: _m32): _m64` | 64bit読み込み |
-| `__builtin_mem_write8(ptr: _m32, offset: _m32, value: _m32): void` | 8bit書き込み |
-| `__builtin_mem_write16(ptr: _m32, offset: _m32, value: _m32): void` | 16bit書き込み |
-| `__builtin_mem_write32(ptr: _m32, offset: _m32, value: _m32): void` | 32bit書き込み |
-| `__builtin_mem_write64(ptr: _m32, offset: _m32, value: _m64): void` | 64bit書き込み |
+| `__builtin_mem_read8(ptr: _m32, offset: _m32): _m32` | 8bit読み込み（ゼロ拡張）。`offset` の単位はバイト |
+| `__builtin_mem_read16(ptr: _m32, offset: _m32): _m32` | 16bit読み込み（ゼロ拡張）。`offset` の単位はバイト |
+| `__builtin_mem_read32(ptr: _m32, offset: _m32): _m32` | 32bit読み込み。`offset` の単位はバイト |
+| `__builtin_mem_read64(ptr: _m32, offset: _m32): _m64` | 64bit読み込み。`offset` の単位はバイト |
+| `__builtin_mem_write8(ptr: _m32, offset: _m32, value: _m32): void` | 8bit書き込み。`offset` の単位はバイト |
+| `__builtin_mem_write16(ptr: _m32, offset: _m32, value: _m32): void` | 16bit書き込み。`offset` の単位はバイト |
+| `__builtin_mem_write32(ptr: _m32, offset: _m32, value: _m32): void` | 32bit書き込み。`offset` の単位はバイト |
+| `__builtin_mem_write64(ptr: _m32, offset: _m32, value: _m64): void` | 64bit書き込み。`offset` の単位はバイト |
 | `__builtin_zeroinit(): _m32` | ゼロ初期化 |
 
+> アドレスおよび `offset` はすべてバイト単位（§3.2 に従う、**MUST**）。`__builtin_mem_read32(ptr, offset)` は `ptr + offset` バイト目から 4 バイトを読む。アライメント要件（例: 32bit ロードはアドレスが 4 の倍数）は実装依存（**IMPLEMENTATION-DEFINED**）。
+
 ### 9.5 単項演算命令
+
+符号反転（neg）命令は本節に集約する（**MUST**）。他節（§9.1 整数演算、§9.9 浮動小数点演算）には neg を記載してはならない。
 
 | 命令 | 説明 |
 |------|------|
 | `__builtin_i32_neg(a: _m32): _m32` | 符号あり32bit整数の符号反転 |
+| `__builtin_i64_neg(a: _m64): _m64` | 符号あり64bit整数の符号反転 |
 | `__builtin_f32_neg(a: _m32): _m32` | 32bit浮動小数点数の符号反転 |
+| `__builtin_f64_neg(a: _m64): _m64` | 64bit浮動小数点数の符号反転 |
 
 ### 9.6 サイズ取得命令
 
@@ -487,7 +492,6 @@ i64  → private let bits: _m64 → 8バイト
 | `__builtin_f32_min(a: _m32, b: _m32): _m32` | 最小値 |
 | `__builtin_f32_max(a: _m32, b: _m32): _m32` | 最大値 |
 | `__builtin_f64_abs(a: _m64): _m64` | 絶対値 |
-| `__builtin_f64_neg(a: _m64): _m64` | 符号反転 |
 | `__builtin_f64_sqrt(a: _m64): _m64` | 平方根 |
 | `__builtin_f64_floor(a: _m64): _m64` | 床関数 |
 | `__builtin_f64_ceil(a: _m64): _m64` | 天井関数 |
@@ -867,11 +871,24 @@ GPU 内で `Ptr<u32>` / `Ptr<i32>` に対するアトミック操作を行う。
 | `gpuAtomicSub(ptr: Ptr<u32>, val: u32): u32` | アトミック減算 |
 | `gpuAtomicMin(ptr: Ptr<u32>, val: u32): u32` | アトミック最小値書き込み |
 | `gpuAtomicMax(ptr: Ptr<u32>, val: u32): u32` | アトミック最大値書き込み |
-| `gpuAtomicCas(ptr: Ptr<u32>, expected: u32, desired: u32): u32` | Compare-And-Swap。古い値を返す |
+| `gpuCompareExchange(ptr: Ptr<u32>, expected: u32, desired: u32): GpuCasResult` | Compare-And-Swap。戻り値は `{ oldValue: u32, exchanged: boolean }` の plain class。CPU 側 `atomicCas32`（成功/失敗 boolean）とは命名で意図的に差別化（**MUST**） |
 | `gpuAtomicLoad(ptr: Ptr<u32>): u32` | アトミックロード |
 | `gpuAtomicStore(ptr: Ptr<u32>, val: u32): void` | アトミックストア |
 
-i32 版は名前末尾に `I32` を付加する（`gpuAtomicAddI32` 等）。メモリ順序は実装が WGSL の `SeqCst` 相当を採用する（**IMPLEMENTATION-DEFINED**）。
+i32 版は名前末尾に `I32` を付加する（`gpuAtomicAddI32` 等。`gpuCompareExchange` の i32 版は `gpuCompareExchangeI32`、戻り型は `GpuCasResultI32`）。メモリ順序は実装が WGSL の `SeqCst` 相当を採用する（**IMPLEMENTATION-DEFINED**）。
+
+`GpuCasResult` / `GpuCasResultI32` は plain class（フィールド `oldValue: u32 / i32`、`exchanged: boolean`）として `gpu` 関数本体内でのみ利用可能。コアライブラリで以下に定義する：
+
+```typescript
+public class GpuCasResult {
+    public let oldValue: u32;
+    public let exchanged: boolean;
+}
+public class GpuCasResultI32 {
+    public let oldValue: i32;
+    public let exchanged: boolean;
+}
+```
 
 #### 14.4.4 ベクトル・行列ユーティリティ
 

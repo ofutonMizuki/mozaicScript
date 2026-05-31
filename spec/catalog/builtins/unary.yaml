@@ -1,0 +1,288 @@
+# 単項演算命令カタログ
+# 既知矛盾 M7: neg 命令の定義が言語仕様§9.1（i64_neg）/ §9.5（i32_neg, f32_neg）/ §9.9（f64_neg）に分散している。
+# SSOT 化により本ファイルに集約する（仕様書 Markdown 自体の整理は別タスク）。
+
+- id: builtin.unary.i32_neg
+  name: __builtin_i32_neg
+  group: unary.neg
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "符号反転後の値"
+  defined_in: mozaicScript-spec.md#9.5
+  notes: "M7: 言語§9.5 にあり"
+
+- id: builtin.unary.f32_neg
+  name: __builtin_f32_neg
+  group: unary.neg
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "符号反転後の値（f32 ビットパターンを _m32 で表現）"
+  defined_in: mozaicScript-spec.md#9.5
+  notes: "M7: 言語§9.5 にあり"
+
+- id: builtin.unary.i64_neg
+  name: __builtin_i64_neg
+  group: unary.neg
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "符号反転後の値"
+  defined_in: mozaicScript-spec.md#9.5
+  notes: "M7 解決 (2026-05-31): §9.5 単項演算節に集約"
+
+- id: builtin.unary.f64_neg
+  name: __builtin_f64_neg
+  group: unary.neg
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "符号反転後の値"
+  defined_in: mozaicScript-spec.md#9.5
+  notes: "M7 解決 (2026-05-31): §9.5 単項演算節に集約"
+
+# ───────── f32 浮動小数点単項演算（言語§9.9） ─────────
+- id: builtin.unary.f32_abs
+  name: __builtin_f32_abs
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "絶対値"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f32_sqrt
+  name: __builtin_f32_sqrt
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "平方根"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f32_floor
+  name: __builtin_f32_floor
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "床関数"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f32_ceil
+  name: __builtin_f32_ceil
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "天井関数"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f32_trunc
+  name: __builtin_f32_trunc
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "ゼロ方向切り捨て"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f32_nearest
+  name: __builtin_f32_nearest
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "最近接偶数丸め"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f32_min
+  name: __builtin_f32_min
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+    - { name: b, type: _m32 }
+  returns: _m32
+  return_semantics: "最小値"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f32_max
+  name: __builtin_f32_max
+  group: unary.float
+  params:
+    - { name: a, type: _m32 }
+    - { name: b, type: _m32 }
+  returns: _m32
+  return_semantics: "最大値"
+  defined_in: mozaicScript-spec.md#9.9
+
+# ───────── f64 浮動小数点単項演算（言語§9.9） ─────────
+- id: builtin.unary.f64_abs
+  name: __builtin_f64_abs
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "絶対値"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f64_sqrt
+  name: __builtin_f64_sqrt
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "平方根"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f64_floor
+  name: __builtin_f64_floor
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "床関数"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f64_ceil
+  name: __builtin_f64_ceil
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "天井関数"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f64_trunc
+  name: __builtin_f64_trunc
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "ゼロ方向切り捨て"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f64_nearest
+  name: __builtin_f64_nearest
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "最近接偶数丸め"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f64_min
+  name: __builtin_f64_min
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+    - { name: b, type: _m64 }
+  returns: _m64
+  return_semantics: "最小値"
+  defined_in: mozaicScript-spec.md#9.9
+
+- id: builtin.unary.f64_max
+  name: __builtin_f64_max
+  group: unary.float
+  params:
+    - { name: a, type: _m64 }
+    - { name: b, type: _m64 }
+  returns: _m64
+  return_semantics: "最大値"
+  defined_in: mozaicScript-spec.md#9.9
+
+# ───────── 整数 bit count / rotate（言語§9.8） ─────────
+- id: builtin.unary.i32_clz
+  name: __builtin_i32_clz
+  group: unary.bitcount
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "先頭ゼロビットカウント"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i32_ctz
+  name: __builtin_i32_ctz
+  group: unary.bitcount
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "末尾ゼロビットカウント"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i32_popcnt
+  name: __builtin_i32_popcnt
+  group: unary.bitcount
+  params:
+    - { name: a, type: _m32 }
+  returns: _m32
+  return_semantics: "1 ビットカウント"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i32_rotl
+  name: __builtin_i32_rotl
+  group: unary.rotate
+  params:
+    - { name: a, type: _m32 }
+    - { name: b, type: _m32 }
+  returns: _m32
+  return_semantics: "左ローテート"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i32_rotr
+  name: __builtin_i32_rotr
+  group: unary.rotate
+  params:
+    - { name: a, type: _m32 }
+    - { name: b, type: _m32 }
+  returns: _m32
+  return_semantics: "右ローテート"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i64_clz
+  name: __builtin_i64_clz
+  group: unary.bitcount
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "先頭ゼロビットカウント"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i64_ctz
+  name: __builtin_i64_ctz
+  group: unary.bitcount
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "末尾ゼロビットカウント"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i64_popcnt
+  name: __builtin_i64_popcnt
+  group: unary.bitcount
+  params:
+    - { name: a, type: _m64 }
+  returns: _m64
+  return_semantics: "1 ビットカウント"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i64_rotl
+  name: __builtin_i64_rotl
+  group: unary.rotate
+  params:
+    - { name: a, type: _m64 }
+    - { name: b, type: _m64 }
+  returns: _m64
+  return_semantics: "左ローテート"
+  defined_in: mozaicScript-spec.md#9.8
+
+- id: builtin.unary.i64_rotr
+  name: __builtin_i64_rotr
+  group: unary.rotate
+  params:
+    - { name: a, type: _m64 }
+    - { name: b, type: _m64 }
+  returns: _m64
+  return_semantics: "右ローテート"
+  defined_in: mozaicScript-spec.md#9.8

@@ -1,0 +1,35 @@
+{
+  "tests": [
+    {
+      "kernel": "vecAdd",
+      "grid": [2, 1, 1],
+      "buffers": {
+        "out": [0, 0, 0, 0, 0, 0, 0, 0],
+        "a":   [1, 1, 1, 1, 1, 1, 1, 1],
+        "b":   [2, 2, 2, 2, 2, 2, 2, 2]
+      },
+      "scalars": { "n": 8 },
+      "read": ["out"]
+    },
+    {
+      "kernel": "scaleI32",
+      "grid": [3, 1, 1],
+      "buffers": {
+        "out": [0, 0, 0, 0, 0, 0],
+        "in":  [1, 2, 3, 4, 5, 6]
+      },
+      "scalars": { "k": 3, "n": 6 },
+      "read": ["out"]
+    },
+    {
+      "kernel": "inclusivePrefix",
+      "grid": [5, 1, 1],
+      "buffers": {
+        "out": [0, 0, 0, 0, 0],
+        "in":  [1, 2, 3, 4, 5]
+      },
+      "scalars": { "n": 5 },
+      "read": ["out"]
+    }
+  ]
+}

@@ -1,0 +1,930 @@
+// ============================================================
+//  core.moc — mozaicScript コアライブラリ
+//
+//  【ファイル種別】§2
+//    .moc ファイルはコンパイラ特権モードで処理される。
+//    _m8 / _m16 / _m32 / _m64 / _m128 / _m256 / _m512 および
+//    __builtin_* 命令はここでのみ使用可能。
+//
+//  【リテラル規則】§5.1 / §6.4
+//    数値・真偽値・文字リテラルは .moc 内の
+//    クラスコンストラクタ引数位置にのみ記述できる。
+//    コンパイラは自動的に対応する _mN へ内部変換する。
+//
+//  【純粋OOP】§6.2
+//    i32 / u32 / f32 などの基本型はコンパイラ組み込みではなく、
+//    すべてこのファイルで通常のクラスとして実装する。
+// ============================================================
+
+// ------------------------------------------------------------
+// § 3.1  ビット系列プリミティブ利用例（サイズ確認コメント）
+//   _m8   =   8bit  （int8量子化・MLP軽量化）
+//   _m16  =  16bit  （fp16 / int16量子化）
+//   _m32  =  32bit  （現行32bit CPU）
+//   _m64  =  64bit  （現行64bit CPU）
+//   _m128 = 128bit  （SIMD / 将来の128bit CPU）
+//   _m256 = 256bit  （SIMD / 将来の256bit CPU）
+//   _m512 = 512bit  （SIMD / AVX-512）
+// ------------------------------------------------------------
+
+
+// ============================================================
+//  § 6.1  アクセス修飾子の使い分け
+//    public      : どこからでもアクセス可能・自動エクスポート（§6.3）
+//    private     : クラス内部のみ
+//    mocp public : .moc ファイル内のみ（.moz からアクセス不可）
+// ============================================================
+
+
+// ============================================================
+//  boolean
+// ============================================================
+public class boolean {
+    // mocp public: .moz からは直接 .bits にアクセス不可
+    mocp public let bits: _m32;
+
+    // § 6.1  コンストラクタのアクセス修飾子は public のみ
+    // § 6.4  リテラルは .moc コンストラクタ引数のみ可
+    public constructor(value: _m32) {
+        this.bits = value;
+    }
+
+    // § 6.5  演算子オーバーロード
+    public operator==(other: boolean): boolean {
+        return new boolean(__builtin_i32_eq(this.bits, other.bits));
+    }
+
+    public operator&&(other: boolean): boolean {
+        return new boolean(__builtin_i32_and(this.bits, other.bits));
+    }
+
+    public operator||(other: boolean): boolean {
+        return new boolean(__builtin_i32_or(this.bits, other.bits));
+    }
+
+    // § 6.5  !a → a.operatorNot()
+    // __builtin_i32_eq(bits, 0) → bits が 0 なら 1、非0 なら 0（論理 NOT）
+    public operatorNot(): boolean {
+        return new boolean(__builtin_i32_eq(this.bits, __builtin_zeroinit()));
+    }
+}
+
+
+// ============================================================
+//  MemoryOrder — アトミック操作のメモリ順序制約
+//  内部値: 0=Relaxed, 1=Acquire, 2=Release, 3=AcqRel, 4=SeqCst
+// ============================================================
+public class MemoryOrder {
+    mocp public let bits: _m32;
+
+    public constructor(value: _m32) {
+        this.bits = value;
+    }
+
+    public operator==(other: MemoryOrder): boolean {
+        return new boolean(__builtin_i32_eq(this.bits, other.bits));
+    }
+}
+
+public function memoryOrderRelaxed(): MemoryOrder { return new MemoryOrder(0); }
+public function memoryOrderAcquire(): MemoryOrder { return new MemoryOrder(1); }
+public function memoryOrderRelease(): MemoryOrder { return new MemoryOrder(2); }
+public function memoryOrderAcqRel():  MemoryOrder { return new MemoryOrder(3); }
+public function memoryOrderSeqCst():  MemoryOrder { return new MemoryOrder(4); }
+
+
+// ============================================================
+//  i32 — 符号あり 32bit 整数
+// ============================================================
+public class i32 {
+    mocp public let bits: _m32;
+
+    public constructor(value: _m32) {
+        this.bits = value;
+    }
+
+    // § 9.1  数値演算命令
+    public operator+(other: i32): i32 {
+        return new i32(__builtin_i32_add(this.bits, other.bits));
+    }
+    public operator-(other: i32): i32 {
+        return new i32(__builtin_i32_sub(this.bits, other.bits));
+    }
+    public operator*(other: i32): i32 {
+        return new i32(__builtin_i32_mul(this.bits, other.bits));
+    }
+    public operator/(other: i32): i32 {
+        return new i32(__builtin_i32_div(this.bits, other.bits));
+    }
+    public operator%(other: i32): i32 {
+        return new i32(__builtin_i32_mod(this.bits, other.bits));
+    }
+
+    // 比較（戻り値は boolean）
+    public operator==(other: i32): boolean {
+        return new boolean(__builtin_i32_eq(this.bits, other.bits));
+    }
+    public operator<(other: i32): boolean {
+        return new boolean(__builtin_i32_lt(this.bits, other.bits));
+    }
+    public operator>(other: i32): boolean {
+        return new boolean(__builtin_i32_gt(this.bits, other.bits));
+    }
+
+    // § 9.5  単項演算
+    public negate(): i32 {
+        return new i32(__builtin_i32_neg(this.bits));
+    }
+
+    // § 9.8  ビット操作命令
+    public clz(): i32 {
+        return new i32(__builtin_i32_clz(this.bits));
+    }
+    public ctz(): i32 {
+        return new i32(__builtin_i32_ctz(this.bits));
+    }
+    public popcnt(): i32 {
+        return new i32(__builtin_i32_popcnt(this.bits));
+    }
+    public rotl(shift: i32): i32 {
+        return new i32(__builtin_i32_rotl(this.bits, shift.bits));
+    }
+    public rotr(shift: i32): i32 {
+        return new i32(__builtin_i32_rotr(this.bits, shift.bits));
+    }
+
+    // § 9.2.1  ビットシフト（言語に << >> 演算子はないのでメソッドで提供）
+    public shl(shift: i32): i32 {
+        return new i32(__builtin_i32_shl(this.bits, shift.bits));
+    }
+    public shr(shift: i32): i32 {
+        return new i32(__builtin_i32_shr(this.bits, shift.bits));
+    }
+
+    // § 9.7  型変換命令（暗黙変換禁止 §4.4 → すべて明示メソッド）
+    public toU32(): u32 {
+        return new u32(__builtin_i32_to_u32(this.bits));
+    }
+    public toI64(): i64 {
+        return new i64(__builtin_i32_to_i64(this.bits));
+    }
+    public toF32(): f32 {
+        return new f32(__builtin_i32_to_f32(this.bits));
+    }
+    public toF64(): f64 {
+        return new f64(__builtin_i32_to_f64(this.bits));
+    }
+}
+
+
+// ============================================================
+//  u32 — 符号なし 32bit 整数
+// ============================================================
+public class u32 {
+    mocp public let bits: _m32;
+
+    public constructor(value: _m32) {
+        this.bits = value;
+    }
+
+    public operator+(other: u32): u32 {
+        return new u32(__builtin_u32_add(this.bits, other.bits));
+    }
+    public operator-(other: u32): u32 {
+        return new u32(__builtin_u32_sub(this.bits, other.bits));
+    }
+    public operator*(other: u32): u32 {
+        return new u32(__builtin_u32_mul(this.bits, other.bits));
+    }
+    public operator/(other: u32): u32 {
+        return new u32(__builtin_u32_div(this.bits, other.bits));
+    }
+    public operator%(other: u32): u32 {
+        return new u32(__builtin_u32_mod(this.bits, other.bits));
+    }
+    public operator==(other: u32): boolean {
+        return new boolean(__builtin_u32_eq(this.bits, other.bits));
+    }
+    public operator<(other: u32): boolean {
+        return new boolean(__builtin_u32_lt(this.bits, other.bits));
+    }
+    public operator>(other: u32): boolean {
+        return new boolean(__builtin_u32_gt(this.bits, other.bits));
+    }
+
+    // § 9.2.1
+    public shl(shift: u32): u32 {
+        return new u32(__builtin_u32_shl(this.bits, shift.bits));
+    }
+    public shr(shift: u32): u32 {
+        return new u32(__builtin_u32_shr(this.bits, shift.bits));
+    }
+
+    // § 9.7  型変換
+    public toI32(): i32 {
+        return new i32(__builtin_u32_to_i32(this.bits));
+    }
+    public toU64(): u64 {
+        return new u64(__builtin_u32_to_u64(this.bits));
+    }
+    public toF32(): f32 {
+        return new f32(__builtin_u32_to_f32(this.bits));
+    }
+    public toF64(): f64 {
+        return new f64(__builtin_u32_to_f64(this.bits));
+    }
+}
+
+
+// ============================================================
+//  i64 — 符号あり 64bit 整数
+// ============================================================
+public class i64 {
+    mocp public let bits: _m64;
+
+    public constructor(value: _m64) {
+        this.bits = value;
+    }
+
+    public operator+(other: i64): i64 {
+        return new i64(__builtin_i64_add(this.bits, other.bits));
+    }
+    public operator-(other: i64): i64 {
+        return new i64(__builtin_i64_sub(this.bits, other.bits));
+    }
+    public operator*(other: i64): i64 {
+        return new i64(__builtin_i64_mul(this.bits, other.bits));
+    }
+    public operator/(other: i64): i64 {
+        return new i64(__builtin_i64_div(this.bits, other.bits));
+    }
+    public operator%(other: i64): i64 {
+        return new i64(__builtin_i64_mod(this.bits, other.bits));
+    }
+    public operator==(other: i64): boolean {
+        return new boolean(__builtin_i64_eq(this.bits, other.bits));
+    }
+    public operator<(other: i64): boolean {
+        return new boolean(__builtin_i64_lt(this.bits, other.bits));
+    }
+    public operator>(other: i64): boolean {
+        return new boolean(__builtin_i64_gt(this.bits, other.bits));
+    }
+
+    public negate(): i64 {
+        return new i64(__builtin_i64_neg(this.bits));
+    }
+
+    // § 9.8
+    public clz(): i64 {
+        return new i64(__builtin_i64_clz(this.bits));
+    }
+    public popcnt(): i64 {
+        return new i64(__builtin_i64_popcnt(this.bits));
+    }
+    public rotl(shift: i64): i64 {
+        return new i64(__builtin_i64_rotl(this.bits, shift.bits));
+    }
+
+    // § 9.2.1
+    public shl(shift: i64): i64 {
+        return new i64(__builtin_i64_shl(this.bits, shift.bits));
+    }
+    public shr(shift: i64): i64 {
+        return new i64(__builtin_i64_shr(this.bits, shift.bits));
+    }
+
+    // § 9.7
+    public toI32(): i32 {
+        return new i32(__builtin_i64_to_i32(this.bits));
+    }
+    public toF64(): f64 {
+        return new f64(__builtin_i64_to_f64(this.bits));
+    }
+}
+
+
+// ============================================================
+//  u64 — 符号なし 64bit 整数
+// ============================================================
+public class u64 {
+    mocp public let bits: _m64;
+
+    public constructor(value: _m64) {
+        this.bits = value;
+    }
+
+    public operator+(other: u64): u64 {
+        return new u64(__builtin_u64_add(this.bits, other.bits));
+    }
+    public operator-(other: u64): u64 {
+        return new u64(__builtin_u64_sub(this.bits, other.bits));
+    }
+    public operator*(other: u64): u64 {
+        return new u64(__builtin_u64_mul(this.bits, other.bits));
+    }
+    public operator/(other: u64): u64 {
+        return new u64(__builtin_u64_div(this.bits, other.bits));
+    }
+    public operator%(other: u64): u64 {
+        return new u64(__builtin_u64_mod(this.bits, other.bits));
+    }
+    public operator==(other: u64): boolean {
+        return new boolean(__builtin_u64_eq(this.bits, other.bits));
+    }
+    public operator<(other: u64): boolean {
+        return new boolean(__builtin_u64_lt(this.bits, other.bits));
+    }
+    public operator>(other: u64): boolean {
+        return new boolean(__builtin_u64_gt(this.bits, other.bits));
+    }
+
+    // § 9.2.1
+    public shl(shift: u64): u64 {
+        return new u64(__builtin_u64_shl(this.bits, shift.bits));
+    }
+    public shr(shift: u64): u64 {
+        return new u64(__builtin_u64_shr(this.bits, shift.bits));
+    }
+
+    // § 9.7
+    public toU32(): u32 {
+        return new u32(__builtin_u64_to_u32(this.bits));
+    }
+    public toF64(): f64 {
+        return new f64(__builtin_u64_to_f64(this.bits));
+    }
+}
+
+
+// ============================================================
+//  f32 — 32bit 浮動小数点数
+// ============================================================
+public class f32 {
+    mocp public let bits: _m32;
+
+    public constructor(value: _m32) {
+        this.bits = value;
+    }
+
+    public operator+(other: f32): f32 {
+        return new f32(__builtin_f32_add(this.bits, other.bits));
+    }
+    public operator-(other: f32): f32 {
+        return new f32(__builtin_f32_sub(this.bits, other.bits));
+    }
+    public operator*(other: f32): f32 {
+        return new f32(__builtin_f32_mul(this.bits, other.bits));
+    }
+    public operator/(other: f32): f32 {
+        return new f32(__builtin_f32_div(this.bits, other.bits));
+    }
+    public operator==(other: f32): boolean {
+        return new boolean(__builtin_f32_eq(this.bits, other.bits));
+    }
+    public operator<(other: f32): boolean {
+        return new boolean(__builtin_f32_lt(this.bits, other.bits));
+    }
+    public operator>(other: f32): boolean {
+        return new boolean(__builtin_f32_gt(this.bits, other.bits));
+    }
+
+    // § 9.5  単項演算
+    public negate(): f32 {
+        return new f32(__builtin_f32_neg(this.bits));
+    }
+
+    // § 9.9  浮動小数点演算命令
+    public abs(): f32 {
+        return new f32(__builtin_f32_abs(this.bits));
+    }
+    public sqrt(): f32 {
+        return new f32(__builtin_f32_sqrt(this.bits));
+    }
+    public floor(): f32 {
+        return new f32(__builtin_f32_floor(this.bits));
+    }
+    public ceil(): f32 {
+        return new f32(__builtin_f32_ceil(this.bits));
+    }
+    public trunc(): f32 {
+        return new f32(__builtin_f32_trunc(this.bits));
+    }
+    public nearest(): f32 {
+        return new f32(__builtin_f32_nearest(this.bits));
+    }
+    public min(other: f32): f32 {
+        return new f32(__builtin_f32_min(this.bits, other.bits));
+    }
+    public max(other: f32): f32 {
+        return new f32(__builtin_f32_max(this.bits, other.bits));
+    }
+
+    // § 9.10  超越関数（予約済み・バックエンド実装依存）
+    public sin(): f32 {
+        return new f32(__builtin_f32_sin(this.bits));
+    }
+    public cos(): f32 {
+        return new f32(__builtin_f32_cos(this.bits));
+    }
+    public tan(): f32 {
+        return new f32(__builtin_f32_tan(this.bits));
+    }
+    public exp(): f32 {
+        return new f32(__builtin_f32_exp(this.bits));
+    }
+    public log(): f32 {
+        return new f32(__builtin_f32_log(this.bits));
+    }
+    public pow(exponent: f32): f32 {
+        return new f32(__builtin_f32_pow(this.bits, exponent.bits));
+    }
+    public atan(): f32 {
+        return new f32(__builtin_f32_atan(this.bits));
+    }
+    public atan2(x: f32): f32 {
+        return new f32(__builtin_f32_atan2(this.bits, x.bits));
+    }
+
+    // § 9.7  型変換
+    public toI32(): i32 {
+        return new i32(__builtin_f32_to_i32(this.bits));
+    }
+    public toU32(): u32 {
+        return new u32(__builtin_f32_to_u32(this.bits));
+    }
+    public toF64(): f64 {
+        return new f64(__builtin_f32_to_f64(this.bits));
+    }
+}
+
+
+// ============================================================
+//  f64 — 64bit 浮動小数点数
+// ============================================================
+public class f64 {
+    mocp public let bits: _m64;
+
+    public constructor(value: _m64) {
+        this.bits = value;
+    }
+
+    public operator+(other: f64): f64 {
+        return new f64(__builtin_f64_add(this.bits, other.bits));
+    }
+    public operator-(other: f64): f64 {
+        return new f64(__builtin_f64_sub(this.bits, other.bits));
+    }
+    public operator*(other: f64): f64 {
+        return new f64(__builtin_f64_mul(this.bits, other.bits));
+    }
+    public operator/(other: f64): f64 {
+        return new f64(__builtin_f64_div(this.bits, other.bits));
+    }
+    public operator==(other: f64): boolean {
+        return new boolean(__builtin_f64_eq(this.bits, other.bits));
+    }
+    public operator<(other: f64): boolean {
+        return new boolean(__builtin_f64_lt(this.bits, other.bits));
+    }
+    public operator>(other: f64): boolean {
+        return new boolean(__builtin_f64_gt(this.bits, other.bits));
+    }
+
+    // § 9.9
+    public negate(): f64 {
+        return new f64(__builtin_f64_neg(this.bits));
+    }
+    public abs(): f64 {
+        return new f64(__builtin_f64_abs(this.bits));
+    }
+    public sqrt(): f64 {
+        return new f64(__builtin_f64_sqrt(this.bits));
+    }
+    public floor(): f64 {
+        return new f64(__builtin_f64_floor(this.bits));
+    }
+    public ceil(): f64 {
+        return new f64(__builtin_f64_ceil(this.bits));
+    }
+    public trunc(): f64 {
+        return new f64(__builtin_f64_trunc(this.bits));
+    }
+    public nearest(): f64 {
+        return new f64(__builtin_f64_nearest(this.bits));
+    }
+    public min(other: f64): f64 {
+        return new f64(__builtin_f64_min(this.bits, other.bits));
+    }
+    public max(other: f64): f64 {
+        return new f64(__builtin_f64_max(this.bits, other.bits));
+    }
+
+    // § 9.10
+    public sin(): f64 {
+        return new f64(__builtin_f64_sin(this.bits));
+    }
+    public cos(): f64 {
+        return new f64(__builtin_f64_cos(this.bits));
+    }
+    public tan(): f64 {
+        return new f64(__builtin_f64_tan(this.bits));
+    }
+    public exp(): f64 {
+        return new f64(__builtin_f64_exp(this.bits));
+    }
+    public log(): f64 {
+        return new f64(__builtin_f64_log(this.bits));
+    }
+    public pow(exponent: f64): f64 {
+        return new f64(__builtin_f64_pow(this.bits, exponent.bits));
+    }
+    public atan(): f64 {
+        return new f64(__builtin_f64_atan(this.bits));
+    }
+    public atan2(x: f64): f64 {
+        return new f64(__builtin_f64_atan2(this.bits, x.bits));
+    }
+
+    // § 9.7  型変換
+    public toF32(): f32 {
+        return new f32(__builtin_f64_to_f32(this.bits));
+    }
+    public toI64(): i64 {
+        return new i64(__builtin_f64_to_i64(this.bits));
+    }
+}
+
+
+// ============================================================
+//  § 4.5  型エイリアス
+//  § 4.6  型同一性: char == u32、string == Array<u32>
+// ============================================================
+type char = u32;
+
+
+// ============================================================
+//  Array<T> — ヒープ上のメモリ配列
+//
+//  § 3.2  ポインタ表現: _m32（32bit アーキテクチャ想定）
+//  § 9.4  メモリ管理命令を使用
+//  § 9.6  __builtin_sizeof<T>() で要素サイズを取得
+//
+//  ※ operator[] / operator_set[] は T が _m32 単一フィールド
+//     クラス（i32, u32, f32 など）であることを前提とする。
+//     T が複合型の場合はバックエンドによる拡張が必要。
+// ============================================================
+public class Array<T> {
+    private let ptr: _m32;    // § 3.2  ヒープポインタ（32bit）
+    public let length: u32;   // 要素数（公開フィールド）
+
+    public constructor(size: u32) {
+        this.length = size;
+        // § 9.4  malloc: sizeof<T> バイト × size 個の領域を確保
+        this.ptr = __builtin_malloc(
+            __builtin_u32_mul(this.length.bits, __builtin_sizeof<T>())
+        );
+    }
+
+    // § 6.5  a[i] → operator[](index)
+    public operator[](index: u32): T {
+        const offset: _m32 = __builtin_u32_mul(index.bits, __builtin_sizeof<T>());
+        const raw: _m32 = __builtin_mem_read32(this.ptr, offset);
+        return new T(raw);
+    }
+
+    // § 6.5  a[i] = v → operator_set[](index, value)
+    public operator_set[](index: u32, value: T): void {
+        const offset: _m32 = __builtin_u32_mul(index.bits, __builtin_sizeof<T>());
+        __builtin_mem_write32(this.ptr, offset, value.bits);
+    }
+
+    // § 9.4  ヒープ解放
+    public free(): void {
+        __builtin_free(this.ptr);
+    }
+}
+
+// § 4.5 / § 4.6  string == Array<u32> == Array<char>
+type string = Array<u32>;
+
+
+// ============================================================
+//  Option<T> — 値の有無を表す型（§ 8）
+//  例外を使わず、値の欠如を型で表現する。
+//
+//  コンストラクタ: new Option<T>(present, val)
+//    present = TRUE  → Some(val)
+//    present = FALSE → None（val は無視、ダミー値を渡す）
+// ============================================================
+public class Option<T> {
+    private let hasValue: boolean;
+    private let value: T;
+
+    public constructor(present: boolean, val: T) {
+        this.hasValue = present;
+        this.value = val;
+    }
+
+    public isSome(): boolean {
+        return this.hasValue;
+    }
+
+    // § 6.5  !a → a.operatorNot() に脱糖
+    public isNone(): boolean {
+        return !this.hasValue;
+    }
+
+    public unwrap(): T {
+        // § 5.4  if の脱糖: __builtin_if(cond)
+        if (this.hasValue == new boolean(1)) {
+            return this.value;
+        }
+        // § 9.3  panic: 即時強制終了
+        __builtin_panic("Option::unwrap() called on None");
+        return this.value;   // 到達不能（コンパイラの戻り値要求を満たすため）
+    }
+}
+
+
+// ============================================================
+//  Result<T> — 成功または失敗を表す型（§ 8）
+//  try / catch / throw は仕様上存在しない（MUST NOT）。
+//
+//  コンストラクタ: new Result<T>(success, val, errMsg)
+//    success = TRUE  → Ok(val)   （errMsg は空文字列 ""）
+//    success = FALSE → Err(msg)  （val はダミー値）
+// ============================================================
+public class Result<T> {
+    private let ok: boolean;
+    private let value: T;
+    private let errMsg: string;
+
+    public constructor(success: boolean, val: T, err: string) {
+        this.ok = success;
+        this.value = val;
+        this.errMsg = err;
+    }
+
+    public isOk(): boolean {
+        return this.ok;
+    }
+
+    public isErr(): boolean {
+        return !this.ok;
+    }
+
+    public unwrap(): T {
+        if (this.ok == new boolean(1)) {
+            return this.value;
+        }
+        __builtin_panic("Result::unwrap() called on Err");
+        return this.value;
+    }
+
+    public unwrapErr(): string {
+        if (this.ok == new boolean(0)) {
+            return this.errMsg;
+        }
+        __builtin_panic("Result::unwrapErr() called on Ok");
+        return this.errMsg;
+    }
+}
+
+
+// ============================================================
+//  Ptr<T> — 型付きポインタ（§ 5.11）
+//
+//  コンストラクタは _m32 を受け取るため .moc 専用。
+//  .moz コードはライブラリが返す Ptr<T> を受け取って使用する。
+//  T は単一の _m32 / _m64 フィールドを持つクラスのみ対応。
+// ============================================================
+public class Ptr<T> {
+    mocp public let addr: _m32;
+
+    public constructor(rawAddr: _m32) {
+        this.addr = rawAddr;
+    }
+
+    public deref(): T {
+        const raw: _m32 = __builtin_mem_read32(this.addr, __builtin_zeroinit());
+        return new T(raw);
+    }
+
+    public write(val: T): void {
+        __builtin_mem_write32(this.addr, __builtin_zeroinit(), val.bits);
+    }
+
+    public isNull(): boolean {
+        return new boolean(__builtin_i32_eq(this.addr, __builtin_zeroinit()));
+    }
+
+    public free(): void {
+        __builtin_free(this.addr);
+    }
+
+    // § 14.3.1: gpu カーネル内で ptr[i] 形式の要素アクセスを行う。
+    // T は単一 _m32 フィールドのラッパー型 (i32/u32/f32) 限定。
+    public operator[](index: u32): T {
+        const offset: _m32 = __builtin_u32_mul(index.bits, __builtin_sizeof<T>());
+        const raw: _m32 = __builtin_mem_read32(this.addr, offset);
+        return new T(raw);
+    }
+
+    public operator_set[](index: u32, value: T): void {
+        const offset: _m32 = __builtin_u32_mul(index.bits, __builtin_sizeof<T>());
+        __builtin_mem_write32(this.addr, offset, value.bits);
+    }
+}
+
+
+// ============================================================
+//  Stdout / Stderr / Stdin — 標準入出力クラス（§ 5.12, § 5.13）
+// ============================================================
+public class Stdout {
+    mocp public let handle: _m32;
+
+    public constructor(h: _m32) {
+        this.handle = h;
+    }
+
+    public write(s: string): void {
+        __builtin_stdout_write(s);
+    }
+
+    public writeLine(s: string): void {
+        __builtin_stdout_write(s);
+        let nl: string = "\n";
+        __builtin_stdout_write(nl);
+    }
+}
+
+public class Stderr {
+    mocp public let handle: _m32;
+
+    public constructor(h: _m32) {
+        this.handle = h;
+    }
+
+    public write(s: string): void {
+        __builtin_stderr_write(s);
+    }
+
+    public writeLine(s: string): void {
+        __builtin_stderr_write(s);
+        let nl: string = "\n";
+        __builtin_stderr_write(nl);
+    }
+}
+
+public class Stdin {
+    mocp public let handle: _m32;
+
+    public constructor(h: _m32) {
+        this.handle = h;
+    }
+
+    public readLine(): string {
+        return __builtin_stdin_readline();
+    }
+}
+
+// ============================================================
+//  § 9.12  標準 I/O ラッパー（.moz から呼び出し可能）
+// ============================================================
+public function print(s: string): void {
+    __builtin_stdout_write(s);
+}
+
+public function eprint(s: string): void {
+    __builtin_stderr_write(s);
+}
+
+public function readLine(): string {
+    return __builtin_stdin_readline();
+}
+
+// § 9.3  パニックラッパー
+public function panic(msg: string): void {
+    __builtin_panic(msg);
+}
+
+
+// ============================================================
+//  § 9.11  マルチスレッドラッパー（§ 13）
+//
+//  mozaicScript のスレッドコードは
+//  プリエンプティブなマルチスレッド環境を前提に記述する（MUST）。
+//  プリエンプティブ / コオペラティブの違いを前提としたコードは禁止（MUST NOT）。
+// ============================================================
+
+// スレッド生成・待機
+public function threadSpawn(fnName: string): u64 {
+    // args は空配列（簡略版）— 実引数を渡す場合は Array<_m32> を構築して渡す
+    let emptyArgs: Array<_m32> = new Array<_m32>(new u32(0));
+    return new u64(__builtin_thread_spawn(fnName, emptyArgs));
+}
+
+public function threadJoin(id: u64): void {
+    __builtin_thread_join(id.bits);
+}
+
+// スレッドプール
+public function threadpoolCreate(size: u32): u64 {
+    return new u64(__builtin_threadpool_create(size.bits));
+}
+public function threadpoolSubmit(pool: u64, fnName: string): void {
+    let emptyArgs: Array<_m32> = new Array<_m32>(new u32(0));
+    __builtin_threadpool_submit(pool.bits, fnName, emptyArgs);
+}
+public function threadpoolWait(pool: u64): void {
+    __builtin_threadpool_wait(pool.bits);
+}
+public function threadpoolDestroy(pool: u64): void {
+    __builtin_threadpool_destroy(pool.bits);
+}
+
+// ミューテックス
+public function mutexCreate(): u64 {
+    return new u64(__builtin_mutex_create());
+}
+public function mutexLock(m: u64): void {
+    __builtin_mutex_lock(m.bits);
+}
+public function mutexUnlock(m: u64): void {
+    __builtin_mutex_unlock(m.bits);
+}
+
+// 条件変数
+public function condvarCreate(): u64 {
+    return new u64(__builtin_condvar_create());
+}
+public function condvarWait(cv: u64, mutex: u64): void {
+    __builtin_condvar_wait(cv.bits, mutex.bits);
+}
+public function condvarSignal(cv: u64): void {
+    __builtin_condvar_signal(cv.bits);
+}
+public function condvarBroadcast(cv: u64): void {
+    __builtin_condvar_broadcast(cv.bits);
+}
+
+// ============================================================
+//  § 6.6 / 6.7  アトミック操作 — MemoryOrder 対応版
+// ============================================================
+
+// 32bit
+public function atomicLoad32(ptr: u32, order: MemoryOrder): u32 {
+    return new u32(__builtin_atomic_load32(ptr.bits, order.bits));
+}
+public function atomicStore32(ptr: u32, val: u32, order: MemoryOrder): void {
+    __builtin_atomic_store32(ptr.bits, val.bits, order.bits);
+}
+public function atomicCas32(ptr: u32, expected: u32, desired: u32, successOrder: MemoryOrder, failureOrder: MemoryOrder): boolean {
+    return new boolean(__builtin_atomic_cas32(ptr.bits, expected.bits, desired.bits, successOrder.bits, failureOrder.bits));
+}
+public function atomicFetchAdd32(ptr: u32, val: u32, order: MemoryOrder): u32 {
+    return new u32(__builtin_atomic_fetch_add32(ptr.bits, val.bits, order.bits));
+}
+public function atomicFetchSub32(ptr: u32, val: u32, order: MemoryOrder): u32 {
+    return new u32(__builtin_atomic_fetch_sub32(ptr.bits, val.bits, order.bits));
+}
+
+// 64bit
+public function atomicLoad64(ptr: u32, order: MemoryOrder): u64 {
+    return new u64(__builtin_atomic_load64(ptr.bits, order.bits));
+}
+public function atomicStore64(ptr: u32, val: u64, order: MemoryOrder): void {
+    __builtin_atomic_store64(ptr.bits, val.bits, order.bits);
+}
+public function atomicCas64(ptr: u32, expected: u64, desired: u64, successOrder: MemoryOrder, failureOrder: MemoryOrder): boolean {
+    return new boolean(__builtin_atomic_cas64(ptr.bits, expected.bits, desired.bits, successOrder.bits, failureOrder.bits));
+}
+public function atomicFetchAdd64(ptr: u32, val: u64, order: MemoryOrder): u64 {
+    return new u64(__builtin_atomic_fetch_add64(ptr.bits, val.bits, order.bits));
+}
+public function atomicFetchSub64(ptr: u32, val: u64, order: MemoryOrder): u64 {
+    return new u64(__builtin_atomic_fetch_sub64(ptr.bits, val.bits, order.bits));
+}
+
+// フェンス
+public function atomicFence(order: MemoryOrder): void {
+    __builtin_atomic_fence(order.bits);
+}
+
+// アトミック操作用メモリ確保（ワードインデックスを返す）
+public function allocWord(): u32 {
+    return new u32(__builtin_malloc(new u32(4).bits));
+}
+public function allocDword(): u32 {
+    return new u32(__builtin_malloc(new u32(8).bits));
+}
+
+
+// ============================================================
+//  § 9.6  sizeof デモ（コメント）
+//
+//  __builtin_sizeof<i32>() → 4  （_m32 = 4バイト）
+//  __builtin_sizeof<i64>() → 8  （_m64 = 8バイト）
+//  __builtin_sizeof<f32>() → 4
+// ============================================================

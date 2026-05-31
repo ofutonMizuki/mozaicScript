@@ -69,9 +69,9 @@ public function main(): void {
         bBuf.unmap();
 
         let args: GpuArgs = new GpuArgs();
-        args.pushBuffer(outBuf);
-        args.pushBuffer(aBuf);
-        args.pushBuffer(bBuf);
+        args.pushBufferMut(&mut outBuf);
+        args.pushBuffer(&aBuf);
+        args.pushBuffer(&bBuf);
         args.pushU32(N);
         gpuDispatch1D(vecAdd, args, new u32(2));   // grid=2 × wgX=4 = 8 thread
         gpuSync();
@@ -86,9 +86,9 @@ public function main(): void {
         }
         outBuf.unmap();
 
-        aBuf.free();
-        bBuf.free();
-        outBuf.free();
+        aBuf.drop();
+        bBuf.drop();
+        outBuf.drop();
     }
 
     // ── ② scaleI32: out[i] = in[i] * 3 ──
@@ -107,8 +107,8 @@ public function main(): void {
         inBuf.unmap();
 
         let args: GpuArgs = new GpuArgs();
-        args.pushBuffer(outBuf);
-        args.pushBuffer(inBuf);
+        args.pushBufferMut(&mut outBuf);
+        args.pushBuffer(&inBuf);
         args.pushI32(new i32(3));
         args.pushU32(N);
         gpuDispatch1D(scaleI32, args, new u32(3));   // grid=3 × wgX=2 = 6 thread
@@ -122,8 +122,8 @@ public function main(): void {
         }
         outBuf.unmap();
 
-        inBuf.free();
-        outBuf.free();
+        inBuf.drop();
+        outBuf.drop();
     }
 
     // ── ③ inclusivePrefix: out[i] = sum(in[0..i]) ──
@@ -149,8 +149,8 @@ public function main(): void {
         inBuf.unmap();
 
         let args: GpuArgs = new GpuArgs();
-        args.pushBuffer(outBuf);
-        args.pushBuffer(inBuf);
+        args.pushBufferMut(&mut outBuf);
+        args.pushBuffer(&inBuf);
         args.pushU32(N);
         gpuDispatch1D(inclusivePrefix, args, N);   // grid=N × wgX=1 = N thread
         gpuSync();
@@ -163,7 +163,7 @@ public function main(): void {
         }
         outBuf.unmap();
 
-        inBuf.free();
-        outBuf.free();
+        inBuf.drop();
+        outBuf.drop();
     }
 }

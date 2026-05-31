@@ -1,0 +1,93 @@
+# コアライブラリ プリミティブクラス API カタログ — コアライブラリ仕様§5.1〜§5.7 が正本
+# 各クラスのメソッド全てを記録すると 100+ エントリになるため、ここでは
+# 「他文書 (命令カタログ等) と関係する代表メソッドおよび neg 系 (M7 関連) を網羅」する。
+# 個別の operator+ 等の脱糖先は対応する builtin.numeric.*_add 等。
+# AI 編集時の追加: 不足するメソッドは仕様§5.x を参照しながら追加すること。
+
+# ───────── boolean (§5.1) ─────────
+- id: corelib.boolean.eq
+  kind: method
+  owner: boolean
+  signature: "operator==(other: boolean): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.1
+
+- id: corelib.boolean.or
+  kind: method
+  owner: boolean
+  signature: "operator||(other: boolean): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.1
+
+- id: corelib.boolean.and
+  kind: method
+  owner: boolean
+  signature: "operator&&(other: boolean): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.1
+
+- id: corelib.boolean.not
+  kind: method
+  owner: boolean
+  signature: "operatorNot(): boolean"
+  defined_in: mozaicScript-corelib-spec.md#5.1
+
+# ───────── i32 (§5.2) — 全 21 メソッド ─────────
+- { id: corelib.i32.add,    kind: method, owner: i32, signature: "operator+(other: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_add }
+- { id: corelib.i32.sub,    kind: method, owner: i32, signature: "operator-(other: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_sub }
+- { id: corelib.i32.mul,    kind: method, owner: i32, signature: "operator*(other: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_mul }
+- { id: corelib.i32.div,    kind: method, owner: i32, signature: "operator/(other: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_div }
+- { id: corelib.i32.mod,    kind: method, owner: i32, signature: "operator%(other: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_mod }
+- { id: corelib.i32.eq,     kind: method, owner: i32, signature: "operator==(other: i32): boolean", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_eq }
+- { id: corelib.i32.lt,     kind: method, owner: i32, signature: "operator<(other: i32): boolean",  defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_lt }
+- { id: corelib.i32.gt,     kind: method, owner: i32, signature: "operator>(other: i32): boolean",  defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.numeric.i32_gt }
+- { id: corelib.i32.negate, kind: method, owner: i32, signature: "negate(): i32",       defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.unary.i32_neg, notes: "M7 解決: 対応 builtin は §9.5" }
+- { id: corelib.i32.clz,    kind: method, owner: i32, signature: "clz(): i32",          defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.unary.i32_clz }
+- { id: corelib.i32.ctz,    kind: method, owner: i32, signature: "ctz(): i32",          defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.unary.i32_ctz }
+- { id: corelib.i32.popcnt, kind: method, owner: i32, signature: "popcnt(): i32",       defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.unary.i32_popcnt }
+- { id: corelib.i32.rotl,   kind: method, owner: i32, signature: "rotl(shift: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.unary.i32_rotl }
+- { id: corelib.i32.rotr,   kind: method, owner: i32, signature: "rotr(shift: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.unary.i32_rotr }
+- { id: corelib.i32.shl,    kind: method, owner: i32, signature: "shl(shift: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.logical.i32_shl }
+- { id: corelib.i32.shr,    kind: method, owner: i32, signature: "shr(shift: i32): i32", defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.logical.i32_shr }
+- { id: corelib.i32.toU32,  kind: method, owner: i32, signature: "toU32(): u32",        defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.conv.i32_to_u32 }
+- { id: corelib.i32.toI64,  kind: method, owner: i32, signature: "toI64(): i64",        defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.conv.i32_to_i64 }
+- { id: corelib.i32.toF32,  kind: method, owner: i32, signature: "toF32(): f32",        defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.conv.i32_to_f32 }
+- { id: corelib.i32.toF64,  kind: method, owner: i32, signature: "toF64(): f64",        defined_in: mozaicScript-corelib-spec.md#5.2, lowers_to: builtin.conv.i32_to_f64 }
+
+# ───────── u32 (§5.3) — negate 無し (符号なし整数のため) ─────────
+- { id: corelib.u32.add,   kind: method, owner: u32, signature: "operator+(other: u32): u32", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_add }
+- { id: corelib.u32.sub,   kind: method, owner: u32, signature: "operator-(other: u32): u32", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_sub }
+- { id: corelib.u32.mul,   kind: method, owner: u32, signature: "operator*(other: u32): u32", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_mul }
+- { id: corelib.u32.div,   kind: method, owner: u32, signature: "operator/(other: u32): u32", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_div }
+- { id: corelib.u32.mod,   kind: method, owner: u32, signature: "operator%(other: u32): u32", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_mod }
+- { id: corelib.u32.eq,    kind: method, owner: u32, signature: "operator==(other: u32): boolean", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_eq }
+- { id: corelib.u32.lt,    kind: method, owner: u32, signature: "operator<(other: u32): boolean",  defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_lt }
+- { id: corelib.u32.gt,    kind: method, owner: u32, signature: "operator>(other: u32): boolean",  defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.numeric.u32_gt }
+- { id: corelib.u32.shl,   kind: method, owner: u32, signature: "shl(shift: u32): u32", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.logical.u32_shl }
+- { id: corelib.u32.shr,   kind: method, owner: u32, signature: "shr(shift: u32): u32", defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.logical.u32_shr }
+- { id: corelib.u32.toI32, kind: method, owner: u32, signature: "toI32(): i32",         defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.conv.u32_to_i32 }
+- { id: corelib.u32.toU64, kind: method, owner: u32, signature: "toU64(): u64",         defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.conv.u32_to_u64 }
+- { id: corelib.u32.toF32, kind: method, owner: u32, signature: "toF32(): f32",         defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.conv.u32_to_f32 }
+- { id: corelib.u32.toF64, kind: method, owner: u32, signature: "toF64(): f64",         defined_in: mozaicScript-corelib-spec.md#5.3, lowers_to: builtin.conv.u32_to_f64 }
+
+# ───────── f32 (§5.4) — neg は negate() で、対応 builtin は §9.5 (M7) ─────────
+- { id: corelib.f32.add,    kind: method, owner: f32, signature: "operator+(other: f32): f32", defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.numeric.f32_add }
+- { id: corelib.f32.sub,    kind: method, owner: f32, signature: "operator-(other: f32): f32", defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.numeric.f32_sub }
+- { id: corelib.f32.mul,    kind: method, owner: f32, signature: "operator*(other: f32): f32", defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.numeric.f32_mul }
+- { id: corelib.f32.div,    kind: method, owner: f32, signature: "operator/(other: f32): f32", defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.numeric.f32_div }
+- { id: corelib.f32.eq,     kind: method, owner: f32, signature: "operator==(other: f32): boolean", defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.numeric.f32_eq }
+- { id: corelib.f32.negate, kind: method, owner: f32, signature: "negate(): f32",       defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.unary.f32_neg, notes: "M7 解決: 対応 builtin は §9.5" }
+- { id: corelib.f32.abs,    kind: method, owner: f32, signature: "abs(): f32",          defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.unary.f32_abs }
+- { id: corelib.f32.sqrt,   kind: method, owner: f32, signature: "sqrt(): f32",         defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.unary.f32_sqrt }
+- { id: corelib.f32.sin,    kind: method, owner: f32, signature: "sin(): f32",          defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.trans.f32_sin }
+- { id: corelib.f32.toF64,  kind: method, owner: f32, signature: "toF64(): f64",        defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.conv.f32_to_f64 }
+- { id: corelib.f32.toI32,  kind: method, owner: f32, signature: "toI32(): i32",        defined_in: mozaicScript-corelib-spec.md#5.4, lowers_to: builtin.conv.f32_to_i32 }
+
+# ───────── i64 / u64 / f64 — 代表のみ (M7 関連の neg を含む) ─────────
+- { id: corelib.i64.negate, kind: method, owner: i64, signature: "negate(): i64", defined_in: mozaicScript-corelib-spec.md#5.5, lowers_to: builtin.unary.i64_neg, notes: "M7 解決: 対応 builtin は §9.5" }
+- { id: corelib.i64.add,    kind: method, owner: i64, signature: "operator+(other: i64): i64", defined_in: mozaicScript-corelib-spec.md#5.5, lowers_to: builtin.numeric.i64_add }
+- { id: corelib.i64.toF64,  kind: method, owner: i64, signature: "toF64(): f64", defined_in: mozaicScript-corelib-spec.md#5.5, lowers_to: builtin.conv.i64_to_f64 }
+
+- { id: corelib.u64.add,   kind: method, owner: u64, signature: "operator+(other: u64): u64", defined_in: mozaicScript-corelib-spec.md#5.6, lowers_to: builtin.numeric.u64_add }
+- { id: corelib.u64.toF64, kind: method, owner: u64, signature: "toF64(): f64", defined_in: mozaicScript-corelib-spec.md#5.6, lowers_to: builtin.conv.u64_to_f64 }
+
+- { id: corelib.f64.negate, kind: method, owner: f64, signature: "negate(): f64", defined_in: mozaicScript-corelib-spec.md#5.7, lowers_to: builtin.unary.f64_neg, notes: "M7 解決: 対応 builtin は §9.5" }
+- { id: corelib.f64.add,    kind: method, owner: f64, signature: "operator+(other: f64): f64", defined_in: mozaicScript-corelib-spec.md#5.7, lowers_to: builtin.numeric.f64_add }
+- { id: corelib.f64.toI64,  kind: method, owner: f64, signature: "toI64(): i64", defined_in: mozaicScript-corelib-spec.md#5.7, lowers_to: builtin.conv.f64_to_i64 }

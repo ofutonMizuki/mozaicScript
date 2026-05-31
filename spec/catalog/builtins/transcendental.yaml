@@ -1,0 +1,20 @@
+# 超越関数（予約済み命令）カタログ — 言語仕様§9.10 が正本
+# 実装は OPTIONAL（バックエンド任意）
+
+- { id: builtin.trans.f32_sin,   name: __builtin_f32_sin,   group: transcendental.f32, params: [{name: a, type: _m32}],                     returns: _m32, return_semantics: "正弦",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f32_cos,   name: __builtin_f32_cos,   group: transcendental.f32, params: [{name: a, type: _m32}],                     returns: _m32, return_semantics: "余弦",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f32_tan,   name: __builtin_f32_tan,   group: transcendental.f32, params: [{name: a, type: _m32}],                     returns: _m32, return_semantics: "正接",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f32_exp,   name: __builtin_f32_exp,   group: transcendental.f32, params: [{name: a, type: _m32}],                     returns: _m32, return_semantics: "指数関数",     defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f32_log,   name: __builtin_f32_log,   group: transcendental.f32, params: [{name: a, type: _m32}],                     returns: _m32, return_semantics: "自然対数",     defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f32_pow,   name: __builtin_f32_pow,   group: transcendental.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "冪乗",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f32_atan,  name: __builtin_f32_atan,  group: transcendental.f32, params: [{name: a, type: _m32}],                     returns: _m32, return_semantics: "逆正接",       defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f32_atan2, name: __builtin_f32_atan2, group: transcendental.f32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "2引数逆正接", defined_in: mozaicScript-spec.md#9.10 }
+
+- { id: builtin.trans.f64_sin,   name: __builtin_f64_sin,   group: transcendental.f64, params: [{name: a, type: _m64}],                     returns: _m64, return_semantics: "正弦",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f64_cos,   name: __builtin_f64_cos,   group: transcendental.f64, params: [{name: a, type: _m64}],                     returns: _m64, return_semantics: "余弦",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f64_tan,   name: __builtin_f64_tan,   group: transcendental.f64, params: [{name: a, type: _m64}],                     returns: _m64, return_semantics: "正接",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f64_exp,   name: __builtin_f64_exp,   group: transcendental.f64, params: [{name: a, type: _m64}],                     returns: _m64, return_semantics: "指数関数",     defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f64_log,   name: __builtin_f64_log,   group: transcendental.f64, params: [{name: a, type: _m64}],                     returns: _m64, return_semantics: "自然対数",     defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f64_pow,   name: __builtin_f64_pow,   group: transcendental.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "冪乗",         defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f64_atan,  name: __builtin_f64_atan,  group: transcendental.f64, params: [{name: a, type: _m64}],                     returns: _m64, return_semantics: "逆正接",       defined_in: mozaicScript-spec.md#9.10 }
+- { id: builtin.trans.f64_atan2, name: __builtin_f64_atan2, group: transcendental.f64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "2引数逆正接", defined_in: mozaicScript-spec.md#9.10 }

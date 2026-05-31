@@ -1,0 +1,28 @@
+# 論理演算・ビットシフト命令カタログ — 言語仕様§9.2 / §9.2.1 が正本
+# 単項 NOT は本ファイル（論理 NOT として扱う）。bit count/rotate は unary.yaml
+
+# ───────── 論理演算（§9.2） ─────────
+- { id: builtin.logical.i32_or,  name: __builtin_i32_or,  group: logical.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "論理 OR", defined_in: mozaicScript-spec.md#9.2 }
+- { id: builtin.logical.i32_and, name: __builtin_i32_and, group: logical.i32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "論理 AND", defined_in: mozaicScript-spec.md#9.2 }
+- { id: builtin.logical.i32_not, name: __builtin_i32_not, group: logical.i32, params: [{name: a, type: _m32}],                       returns: _m32, return_semantics: "論理 NOT", defined_in: mozaicScript-spec.md#9.2 }
+
+- { id: builtin.logical.u32_or,  name: __builtin_u32_or,  group: logical.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "論理 OR", defined_in: mozaicScript-spec.md#9.2 }
+- { id: builtin.logical.u32_and, name: __builtin_u32_and, group: logical.u32, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "論理 AND", defined_in: mozaicScript-spec.md#9.2 }
+
+- { id: builtin.logical.i64_or,  name: __builtin_i64_or,  group: logical.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "論理 OR", defined_in: mozaicScript-spec.md#9.2 }
+- { id: builtin.logical.i64_and, name: __builtin_i64_and, group: logical.i64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "論理 AND", defined_in: mozaicScript-spec.md#9.2 }
+- { id: builtin.logical.i64_not, name: __builtin_i64_not, group: logical.i64, params: [{name: a, type: _m64}],                       returns: _m64, return_semantics: "論理 NOT", defined_in: mozaicScript-spec.md#9.2 }
+
+- { id: builtin.logical.u64_or,  name: __builtin_u64_or,  group: logical.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "論理 OR", defined_in: mozaicScript-spec.md#9.2 }
+- { id: builtin.logical.u64_and, name: __builtin_u64_and, group: logical.u64, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "論理 AND", defined_in: mozaicScript-spec.md#9.2 }
+- { id: builtin.logical.u64_not, name: __builtin_u64_not, group: logical.u64, params: [{name: a, type: _m64}],                       returns: _m64, return_semantics: "論理 NOT", defined_in: mozaicScript-spec.md#9.2 }
+
+# ───────── ビットシフト（§9.2.1） ─────────
+- { id: builtin.logical.i32_shl, name: __builtin_i32_shl, group: logical.shift, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "左シフト",     defined_in: mozaicScript-spec.md#9.2.1 }
+- { id: builtin.logical.i32_shr, name: __builtin_i32_shr, group: logical.shift, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "算術右シフト", defined_in: mozaicScript-spec.md#9.2.1 }
+- { id: builtin.logical.u32_shl, name: __builtin_u32_shl, group: logical.shift, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "左シフト",     defined_in: mozaicScript-spec.md#9.2.1 }
+- { id: builtin.logical.u32_shr, name: __builtin_u32_shr, group: logical.shift, params: [{name: a, type: _m32}, {name: b, type: _m32}], returns: _m32, return_semantics: "論理右シフト", defined_in: mozaicScript-spec.md#9.2.1 }
+- { id: builtin.logical.i64_shl, name: __builtin_i64_shl, group: logical.shift, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "左シフト",     defined_in: mozaicScript-spec.md#9.2.1 }
+- { id: builtin.logical.i64_shr, name: __builtin_i64_shr, group: logical.shift, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "算術右シフト", defined_in: mozaicScript-spec.md#9.2.1 }
+- { id: builtin.logical.u64_shl, name: __builtin_u64_shl, group: logical.shift, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "左シフト",     defined_in: mozaicScript-spec.md#9.2.1 }
+- { id: builtin.logical.u64_shr, name: __builtin_u64_shr, group: logical.shift, params: [{name: a, type: _m64}, {name: b, type: _m64}], returns: _m64, return_semantics: "論理右シフト", defined_in: mozaicScript-spec.md#9.2.1 }

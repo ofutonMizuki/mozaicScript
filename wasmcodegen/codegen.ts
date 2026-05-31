@@ -824,8 +824,10 @@ export class WasmCodegen {
     private emitNewExpr(node: any, ctx: FnCtx): EType {
         const concreteType = this.resolveAlias(applySubst(node.resolvedType, ctx.subst));
 
-        // 配列/文字列リテラル
-        if (node.elements !== undefined) return this.emitArrayLiteral(node, concreteType, ctx);
+        // elements フィールドは廃止（IR §6 / corelib §7.2）。フロントエンドが operator_set[] 展開済みを出力する。
+        if ((node as any).elements !== undefined) {
+            throw new Error(`wasmcodegen: 廃止された elements フィールドが IR に存在します。コンパイラを再実行してください (M4)`);
+        }
 
         // 機械型
         if (MACHINE.has(concreteType)) {
